@@ -3,10 +3,8 @@
 **Capabilities:** browser.navigate, browser.click, browser.type, browser.extract, browser.screenshot
 
 ## Overview
-Conduit is the auditable browser engine built into Cato. Every browser action is billed
-per-action, logged to the audit trail, and enforced against the session budget cap.
-
-Action costs: NAVIGATE 1¢ · CLICK 1¢ · TYPE 1¢ · EXTRACT 2¢ · SCREENSHOT 5¢
+Conduit is the auditable browser engine built into Cato. Every browser action is
+logged to the audit trail. Billing is disabled for local Cato use — all actions are free.
 
 ## Activation
 Conduit is used automatically when `conduit_enabled: true` is set in `~/.cato/config.yaml`,

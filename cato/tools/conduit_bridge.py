@@ -9,11 +9,7 @@ Ed25519 identity key is stored in {data_dir}/conduit_identity.key for audit
 trail integrity. Billing is recorded in cato.db table conduit_billing.
 
 Action costs:
-    NAVIGATE   = 1 cent
-    CLICK      = 1 cent
-    TYPE       = 1 cent
-    EXTRACT    = 2 cents
-    SCREENSHOT = 5 cents
+    All actions = 0 cents (billing disabled for local Cato use)
 
 VOIX protocol: strips <tool>...</tool> and <context>...</context> tags
 from extracted HTML/text content before returning to agent.
@@ -36,11 +32,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 ACTION_COSTS: dict[str, int] = {
-    "navigate":   1,
-    "click":      1,
-    "type":       1,
-    "extract":    2,
-    "screenshot": 5,
+    "navigate":   0,
+    "click":      0,
+    "type":       0,
+    "extract":    0,
+    "screenshot": 0,
 }
 
 _VOIX_TAGS_RE = re.compile(r"<(tool|context)>.*?</(tool|context)>", re.DOTALL)
