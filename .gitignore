@@ -19,3 +19,8 @@ vault.enc
 .pytest_cache/
 .coverage
 htmlcov/
+Capture.PNG
+*.PNG
+OpenclawArticle.md
+remixforge/
+spiderspark-conduit/
