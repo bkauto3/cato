@@ -118,6 +118,11 @@ class Vault:
     def _prompt_password(self, confirm: bool = False) -> str:
         """Prompt for the master password, with optional confirmation."""
         import sys
+        # Check environment variable first
+        env_password = os.environ.get("CATO_VAULT_PASSWORD")
+        if env_password:
+            return env_password
+
         if not sys.stdin.isatty():
             raise VaultError(
                 "Vault is locked and no TTY is available to prompt for the master password. "

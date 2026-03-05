@@ -248,6 +248,17 @@ def vault_delete(key: str) -> None:
               help="Browser engine to use (conduit = opt-in per-action billing).")
 def cmd_start(agent: str, channel: str, browser: str) -> None:
     """Start the CATO daemon."""
+    # Load .env file if it exists
+    import os
+    from pathlib import Path
+    env_file = Path.cwd() / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_file)
+        except ImportError:
+            pass  # dotenv not installed, continue with existing env vars
+
     config = CatoConfig.load()
 
     if browser == "conduit":
