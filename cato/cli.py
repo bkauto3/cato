@@ -1155,3 +1155,90 @@ def cmd_replay(session_id: str, live: bool) -> None:
 
     report = engine.replay(session_id, live=live)
     safe_print(engine.format_report(report))
+
+
+# ---------------------------------------------------------------------------
+# coding-agent command
+# ---------------------------------------------------------------------------
+
+@main.command("coding-agent")
+@click.option("--task", required=True, help="Task to perform (e.g., 'optimize this function')")
+@click.option("--file", default=None, help="File to analyze (optional)")
+@click.option("--context", default="", help="Additional context for the task")
+@click.option("--verbose", is_flag=True, help="Enable verbose logging")
+@click.option("--threshold", default=0.90, type=float, help="Early termination confidence threshold")
+@click.option("--max-wait", default=3000, type=int, help="Maximum wait time in milliseconds")
+def cmd_coding_agent(task: str, file: Optional[str], context: str, verbose: bool, threshold: float, max_wait: int) -> None:
+    """
+    Execute coding-agent skill with async model orchestration.
+
+    Invokes Claude API, Codex CLI, and Gemini CLI in parallel with early
+    termination when confidence threshold is met.
+
+    Example:
+        cato coding-agent --task "optimize this function" --file app.py --verbose
+    """
+    from cato.commands.coding_agent_cmd import cmd_coding_agent_sync
+
+    # If file is provided, read it and add to context
+    if file:
+        try:
+            file_path = Path(file)
+            file_context = file_path.read_text()
+            if context:
+                context = f"{file_context}\n\n{context}"
+            else:
+                context = file_context
+        except FileNotFoundError:
+            safe_print(f"Error: File '{file}' not found")
+            sys.exit(1)
+        except Exception as e:
+            safe_print(f"Error reading file '{file}': {e}")
+            sys.exit(1)
+
+    # Execute coding-agent
+    try:
+        result = cmd_coding_agent_sync(
+            task=task,
+            context=context,
+            verbose=verbose,
+            threshold=threshold,
+            max_wait_ms=max_wait
+        )
+
+        # Parse and display result
+        result_dict = json.loads(result)
+
+        if result_dict.get("status") == "success":
+            synthesis = result_dict.get("synthesis", {})
+            metrics = result_dict.get("metrics", {})
+
+            # Display primary result
+            primary = synthesis.get("primary", {})
+            safe_print(f"\nPrimary Solution ({primary.get('model', 'unknown')}):")
+            safe_print(f"Confidence: {primary.get('confidence', 0):.2%}")
+            safe_print(f"Response:\n{primary.get('response', 'N/A')}")
+
+            # Display runners-up
+            runners = synthesis.get("runners_up", [])
+            if runners:
+                safe_print("\nRunners-up:")
+                for runner in runners:
+                    safe_print(f"  - {runner.get('model', 'unknown')}: {runner.get('confidence', 0):.2%}")
+
+            # Display metrics
+            safe_print(f"\nMetrics:")
+            safe_print(f"Total Latency: {metrics.get('total_latency_ms', 0):.1f}ms")
+            safe_print(f"Early Termination: {'Yes' if metrics.get('early_termination') else 'No'}")
+
+        else:
+            error = result_dict.get("error", "Unknown error")
+            safe_print(f"Error: {error}")
+            sys.exit(1)
+
+    except json.JSONDecodeError:
+        safe_print("Error: Invalid response format from coding-agent")
+        sys.exit(1)
+    except Exception as e:
+        safe_print(f"Error executing coding-agent: {e}")
+        sys.exit(1)

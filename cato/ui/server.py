@@ -2,10 +2,15 @@
 cato/ui/server.py — aiohttp server that serves the Cato dashboard.
 
 Mounts:
-  GET /          → dashboard.html (SPA)
-  GET /health    → JSON health payload
-  GET /ws        → WebSocket upgrade (delegates to gateway)
-  POST /config   → Save config (stub; gateway wires real handler)
+  GET /                          → dashboard.html (SPA)
+  GET /health                    → JSON health payload
+  GET /ws                        → WebSocket upgrade (delegates to gateway)
+  POST /config                   → Save config (stub; gateway wires real handler)
+  GET /coding-agent              → coding_agent.html entry page
+  GET /coding-agent/{task_id}    → coding_agent.html SPA (task view)
+  POST /api/coding-agent/invoke  → Create task, returns task_id
+  GET /api/coding-agent/{tid}    → Task metadata
+  GET /ws/coding-agent/{tid}     → WebSocket streaming for task
 """
 
 from __future__ import annotations
@@ -20,8 +25,9 @@ from aiohttp import web, WSMsgType
 
 logger = logging.getLogger(__name__)
 
-_DASHBOARD = Path(__file__).parent / "dashboard.html"
-_START_TIME = time.monotonic()
+_DASHBOARD      = Path(__file__).parent / "dashboard.html"
+_CODING_AGENT   = Path(__file__).parent / "coding_agent.html"
+_START_TIME     = time.monotonic()
 
 
 async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
@@ -98,6 +104,14 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response({"status": "error", "message": str(exc)}, status=400)
 
     # ------------------------------------------------------------------ #
+    # Coding Agent routes                                                  #
+    # ------------------------------------------------------------------ #
+
+    async def serve_coding_agent(request: web.Request) -> web.FileResponse:
+        """Serve the coding agent SPA for /coding-agent and /coding-agent/{task_id}."""
+        return web.FileResponse(_CODING_AGENT)
+
+    # ------------------------------------------------------------------ #
     # Router                                                               #
     # ------------------------------------------------------------------ #
 
@@ -105,6 +119,45 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/health",  health)
     app.router.add_get("/ws",      websocket_handler)
     app.router.add_post("/config", save_config)
+
+    # Coding agent UI routes
+    app.router.add_get("/coding-agent",           serve_coding_agent)
+    app.router.add_get("/coding-agent/{task_id}", serve_coding_agent)
+
+    # Register coding agent API + WebSocket routes
+    try:
+        from cato.api.routes import register_all_routes
+        register_all_routes(app)
+        logger.info("Coding agent API routes registered")
+    except ImportError as exc:
+        logger.warning("Could not register coding agent routes: %s", exc)
+
+    # ------------------------------------------------------------------ #
+    # CLI process pool lifecycle                                          #
+    # ------------------------------------------------------------------ #
+
+    async def _start_cli_pool(app: web.Application) -> None:
+        """Warm up persistent CLI processes on server start."""
+        try:
+            from cato.orchestrator.cli_process_pool import get_pool
+            pool = get_pool()
+            await pool.start_all()
+            logger.info("CLI process pool started")
+        except Exception as exc:
+            logger.warning("CLI process pool failed to start: %s", exc)
+
+    async def _stop_cli_pool(app: web.Application) -> None:
+        """Shut down persistent CLI processes on server stop."""
+        try:
+            from cato.orchestrator.cli_process_pool import get_pool
+            pool = get_pool()
+            await pool.stop_all()
+            logger.info("CLI process pool stopped")
+        except Exception as exc:
+            logger.warning("CLI process pool failed to stop: %s", exc)
+
+    app.on_startup.append(_start_cli_pool)
+    app.on_cleanup.append(_stop_cli_pool)
 
     logger.info("UI app created — dashboard: %s", _DASHBOARD)
     return app
