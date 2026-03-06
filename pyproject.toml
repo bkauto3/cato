@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cato-daemon"
-version = "0.1.0"
+version = "0.2.0"
 description = "The AI agent daemon you can audit in a coffee break"
 readme = "README.md"
 license = { text = "MIT" }
