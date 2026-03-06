@@ -282,6 +282,23 @@ def verify_chain(db_path: Optional[Path] = None) -> tuple[bool, str]:
                 f"prev_hash mismatch: expected {expected_prev[:16]}…, "
                 f"got {row['prev_hash'][:16]}…"
             )
+
+        # Verify record_hash matches re-computed hash of all fields
+        expected_hash = _sha256("|".join([
+            row["record_id"], row["prev_hash"], row["timestamp"],
+            row["agent_session_id"], row["tool_name"],
+            row["tool_input_hash"], row["tool_output_hash"],
+            row["reasoning_excerpt"], str(row["confidence_score"]),
+            row["model_source"], str(row["reversibility"]),
+            row["delegation_token_id"] or "",
+        ]))
+        if expected_hash != row["record_hash"]:
+            return False, (
+                f"TAMPERED at record {row['record_id']} (index {i}) — "
+                f"field hash mismatch: stored {row['record_hash'][:16]}…, "
+                f"recomputed {expected_hash[:16]}…"
+            )
+
         expected_prev = row["record_hash"]
 
     return True, f"VALID ({len(rows)} records, chain intact)"

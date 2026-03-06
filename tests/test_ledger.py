@@ -199,6 +199,26 @@ class TestVerifyChain:
         assert valid is False
         assert "TAMPERED" in msg
 
+    def test_field_mutation_detected_by_rehash(self, tmp_path: Path) -> None:
+        """verify_chain() detects field-level mutation (not just prev_hash tampering)."""
+        db = tmp_path / "field_tamper.db"
+        m = LedgerMiddleware(db_path=db)
+        rid = m.append("read_file", {}, "output", "sess-field")
+        m.close()
+
+        # Mutate confidence_score without touching prev_hash or record_hash
+        conn = sqlite3.connect(str(db))
+        conn.execute(
+            "UPDATE ledger_records SET confidence_score = 0.99 WHERE record_id = ?",
+            (rid,),
+        )
+        conn.commit()
+        conn.close()
+
+        valid, msg = verify_chain(db_path=db)
+        assert valid is False
+        assert "field hash mismatch" in msg
+
     def test_valid_returns_true_with_count(self, tmp_path: Path) -> None:
         db = tmp_path / "valid.db"
         m = LedgerMiddleware(db_path=db)
