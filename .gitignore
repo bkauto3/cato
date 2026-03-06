@@ -29,3 +29,14 @@ CATO_ALEX_AUDIT.md
 CATO_BUILD_LOG.md
 CATO_KRAKEN_VERDICT.md
 CATO_UPGRADE_PLAN.md
+
+# Session/audit/task artifacts (dev-only, not for public repo)
+AUDIT_*.md
+TASK_*.md
+REALITY_CHECK_REPORT.md
+WEEK1_MVP_*.md
+README_WEEK1_EXECUTION.md
+CATO_SESSION_*.md
+*_SESSION_*.md
+*_EXECUTION.md
+*_IMPLEMENTATION_REPORT.md
