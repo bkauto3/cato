@@ -15,6 +15,7 @@ async def wait_for_threshold(
     results_queue: asyncio.Queue,
     threshold: float = 0.90,
     max_wait_ms: int = 3000,
+    cancel_event: asyncio.Event | None = None,
 ) -> Dict:
     """
     Monitor incoming results and terminate when the confidence threshold is met.
@@ -33,6 +34,8 @@ async def wait_for_threshold(
         results_queue: Queue fed by concurrent model invocations.
         threshold: Confidence threshold for early termination (default 0.90).
         max_wait_ms: Maximum wall-clock wait time in milliseconds (default 3000).
+        cancel_event: Optional asyncio.Event to set when threshold is met,
+            signalling ``invoke_with_early_termination`` to cancel slow models.
 
     Returns:
         {
@@ -77,6 +80,8 @@ async def wait_for_threshold(
                 confidence,
                 result.get("model", "unknown"),
             )
+            if cancel_event is not None:
+                cancel_event.set()
             return {
                 "winner": result,
                 "elapsed_ms": elapsed_ms,

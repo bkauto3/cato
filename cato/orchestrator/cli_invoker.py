@@ -398,6 +398,7 @@ async def invoke_with_early_termination(
     task: str,
     results_queue: asyncio.Queue,
     threshold: float = 0.90,
+    cancel_event: Optional[asyncio.Event] = None,
 ) -> None:
     """
     Invoke all 3 models concurrently and push each result into *results_queue*
@@ -408,19 +409,46 @@ async def invoke_with_early_termination(
     act on the first high-confidence result and cancel the remaining work
     before the slower models finish.
 
+    When *cancel_event* is set, any model tasks that have not yet completed
+    are cancelled, achieving real latency savings for the early-termination
+    path.
+
     Args:
         prompt: Context or code to analyse.
         task: High-level task description.
         results_queue: Queue that ``wait_for_threshold`` is consuming.
         threshold: Passed through for documentation purposes; the actual
             termination decision is made by ``wait_for_threshold``.
+        cancel_event: Optional asyncio.Event; when set, remaining model tasks
+            are cancelled immediately.
     """
     async def _invoke_and_enqueue(coro):
         result = await coro
         await results_queue.put(result)
 
-    await asyncio.gather(
+    model_tasks = [
         asyncio.create_task(_invoke_and_enqueue(invoke_claude_api(prompt, task))),
         asyncio.create_task(_invoke_and_enqueue(invoke_codex_cli(prompt, task))),
         asyncio.create_task(_invoke_and_enqueue(invoke_gemini_cli(prompt, task))),
-    )
+    ]
+
+    if cancel_event is not None:
+        # Race: finish all models OR cancel_event fires
+        cancel_waiter = asyncio.create_task(cancel_event.wait())
+        done, pending = await asyncio.wait(
+            model_tasks + [cancel_waiter],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if cancel_waiter in done:
+            # Threshold was met — cancel any models still running
+            for t in model_tasks:
+                if not t.done():
+                    t.cancel()
+            # Suppress CancelledError from cancelled tasks
+            await asyncio.gather(*model_tasks, return_exceptions=True)
+        else:
+            # All models finished before cancellation
+            cancel_waiter.cancel()
+            await asyncio.gather(*model_tasks, return_exceptions=True)
+    else:
+        await asyncio.gather(*model_tasks, return_exceptions=True)

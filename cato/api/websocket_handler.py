@@ -27,6 +27,12 @@ from typing import Any, Dict, Optional
 
 from aiohttp import web, WSMsgType
 
+try:
+    from cato.orchestrator.metrics import track_invocation
+except ImportError:  # pragma: no cover
+    def track_invocation(*args, **kwargs) -> None:  # type: ignore[misc]
+        pass
+
 # Module-level imports for model invocations — importable at module level so
 # that tests can patch them via `cato.api.websocket_handler.invoke_claude_api`.
 try:
@@ -283,7 +289,8 @@ async def coding_agent_ws_handler(request: web.Request) -> web.WebSocketResponse
 
         # Check for early termination (any model >= 0.95 confidence)
         primary = synthesis.get("primary")
-        if primary and primary.get("confidence", 0) >= 0.95:
+        early_exit = bool(primary and primary.get("confidence", 0) >= 0.95)
+        if early_exit:
             synthesis["early_exit"] = True
             await ws.send_str(_serialize_event("early_termination", {
                 "winner":     primary.get("model"),
@@ -297,6 +304,22 @@ async def coding_agent_ws_handler(request: web.Request) -> web.WebSocketResponse
             "early_exit": synthesis.get("early_exit", False),
             "timestamp":  int(time.time() * 1000),
         }))
+
+        # Record invocation metrics
+        if primary:
+            individual_latencies = {
+                r.get("model", "unknown"): r.get("latency_ms", 0.0)
+                for r in results if r is not None
+            }
+            track_invocation(
+                task=task_text,
+                total_latency_ms=sum(individual_latencies.values()),
+                winner_model=primary.get("model", "unknown"),
+                winner_confidence=primary.get("confidence", 0.0),
+                terminated_early=early_exit,
+                models_responded=sum(1 for r in results if r is not None),
+                individual_latencies=individual_latencies,
+            )
 
     await ws.close()
     return ws

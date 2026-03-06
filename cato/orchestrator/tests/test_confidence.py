@@ -68,6 +68,18 @@ class TestExtractConfidence:
         # 95 should be treated as percentage and converted
         assert 0.94 <= confidence <= 0.96
 
+    def test_extract_confidence_i_am_confident_pattern(self):
+        """Test extraction of 'I am 85% confident' natural language pattern (MED-A fix)."""
+        response = "I am 85% confident this is the correct approach."
+        confidence = extract_confidence(response)
+        assert 0.84 <= confidence <= 0.86
+
+    def test_extract_confidence_just_confident_suffix(self):
+        """Test extraction of '85% confident' pattern."""
+        response = "The solution is correct. 92% confident."
+        confidence = extract_confidence(response)
+        assert 0.91 <= confidence <= 0.93
+
 
 class TestScoreResponseQuality:
     """Tests for score_response_quality function."""

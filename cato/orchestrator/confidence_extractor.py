@@ -61,6 +61,14 @@ def extract_confidence(response_text: object) -> float:
         except ValueError:
             pass
 
+    # Pattern 4: "I am 85% confident" / "85% confident"
+    match = re.search(r'([0-9]+(?:\.[0-9]+)?)%?\s+confident', response_text, re.IGNORECASE)
+    if match:
+        try:
+            return _parse_and_clamp(match.group(1))
+        except ValueError:
+            pass
+
     return 0.75
 
 
