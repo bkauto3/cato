@@ -63,6 +63,12 @@ def register_tool(name: str, fn: Callable) -> None:
     _TOOL_REGISTRY[name] = fn
 
 
+def register_all_tools(register_tool_fn: Callable[[str, Any], None], config: Optional[Any] = None) -> None:
+    """Register Conduit-related and web search tools. Call with (loop.register_tool, self._cfg) from gateway."""
+    from cato.tools.web_search import register_web_search_tools
+    register_web_search_tools(register_tool_fn, config=config)
+
+
 async def _dispatch_tool(call: ToolCall) -> str:
     handler = _TOOL_REGISTRY.get(call.name)
     if handler is None:
@@ -190,6 +196,10 @@ class AgentLoop:
 
         # Safety guard
         self._safety = safety_guard or SafetyGuard(config={"safety_mode": getattr(config, "safety_mode", "strict")})
+
+    def register_tool(self, name: str, fn: Callable) -> None:
+        """Register a tool with the global registry (for use with register_all_tools(loop.register_tool, config))."""
+        register_tool(name, fn)
 
     async def run(self, session_id: str, message: str, agent_id: str) -> tuple[str, str]:
         """

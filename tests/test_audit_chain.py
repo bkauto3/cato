@@ -245,12 +245,12 @@ class TestAuditMethod:
     """Tests that ConduitBridge._audit() writes to BOTH tables."""
 
     def _make_bridge(self, tmp_db, ConduitBridge):
-        # ConduitBridge's first positional param is session_id_or_config (not session_id)
-        bridge = ConduitBridge(
-            "audit-method-test",
-            budget_cents=9999,
-            data_dir=tmp_db.parent,
-        )
+        # Config-driven constructor: dict + session_id
+        cfg = {
+            "conduit_budget_per_session": 9999,
+            "data_dir": str(tmp_db.parent),
+        }
+        bridge = ConduitBridge(cfg, "audit-method-test")
         # Connect both ledger and audit_log manually (no browser needed)
         bridge._ledger.connect()
         bridge._audit_log.connect()
@@ -276,11 +276,8 @@ class TestAuditMethod:
         """One _audit() call must produce one row in EACH table."""
         import uuid
         sid = f"both-tables-{uuid.uuid4().hex[:8]}"
-        bridge = ConduitBridge(
-            sid,
-            budget_cents=9999,
-            data_dir=tmp_db.parent,
-        )
+        cfg = {"conduit_budget_per_session": 9999, "data_dir": str(tmp_db.parent)}
+        bridge = ConduitBridge(cfg, sid)
         bridge._ledger.connect()
         bridge._audit_log.connect()
 
@@ -294,11 +291,8 @@ class TestAuditMethod:
     def test_audit_hash_chain_valid_after_sequence(self, tmp_db, ConduitBridge, AuditLog):
         import uuid
         sid = f"chain-seq-{uuid.uuid4().hex[:8]}"
-        bridge = ConduitBridge(
-            sid,
-            budget_cents=9999,
-            data_dir=tmp_db.parent,
-        )
+        cfg = {"conduit_budget_per_session": 9999, "data_dir": str(tmp_db.parent)}
+        bridge = ConduitBridge(cfg, sid)
         bridge._ledger.connect()
         bridge._audit_log.connect()
 
@@ -311,11 +305,8 @@ class TestAuditMethod:
     def test_audit_error_recorded_in_chain(self, tmp_db, ConduitBridge, AuditLog):
         import uuid
         sid = f"error-chain-{uuid.uuid4().hex[:8]}"
-        bridge = ConduitBridge(
-            sid,
-            budget_cents=9999,
-            data_dir=tmp_db.parent,
-        )
+        cfg = {"conduit_budget_per_session": 9999, "data_dir": str(tmp_db.parent)}
+        bridge = ConduitBridge(cfg, sid)
         bridge._ledger.connect()
         bridge._audit_log.connect()
 
@@ -337,11 +328,8 @@ class TestBudgetEnforcement:
 
         import uuid
         sid = f"budget-{uuid.uuid4().hex[:8]}"
-        bridge = ConduitBridge(
-            sid,
-            budget_cents=0,  # zero budget
-            data_dir=tmp_db.parent,
-        )
+        cfg = {"conduit_budget_per_session": 0, "data_dir": str(tmp_db.parent)}
+        bridge = ConduitBridge(cfg, sid)
         bridge._ledger.connect()
         bridge._audit_log.connect()
 

@@ -27,11 +27,32 @@ class ConduitCrawler:
         pages = await crawler.crawl_site("https://example.com", max_depth=2, limit=20)
     """
 
-    def __init__(self, browser_tool, audit_log, session_id: str):
+    def __init__(
+        self,
+        browser_tool,
+        audit_log,
+        session_id: str,
+        crawl_delay_sec: float = 1.0,
+        crawl_max_delay_sec: float = 60.0,
+    ):
         self._browser = browser_tool
         self._audit_log = audit_log
         self._session_id = session_id
+        self._crawl_delay_sec = crawl_delay_sec
+        self._crawl_max_delay_sec = crawl_max_delay_sec
         self._robots_cache: dict[str, RobotFileParser] = {}
+        self._domain_last_request: dict[str, float] = {}
+
+    async def _wait_crawl_delay(self, url: str) -> None:
+        """Wait until min delay has elapsed for this domain (respects config)."""
+        import time
+        parsed = urlparse(url)
+        domain = f"{parsed.scheme}://{parsed.netloc}"
+        last = self._domain_last_request.get(domain, 0)
+        elapsed = time.monotonic() - last
+        if elapsed < self._crawl_delay_sec:
+            await asyncio.sleep(self._crawl_delay_sec - elapsed)
+        self._domain_last_request[domain] = time.monotonic()
 
     async def _is_allowed(self, url: str) -> bool:
         """Check robots.txt. Cache per domain. If robots.txt unreadable, allow."""
@@ -93,6 +114,7 @@ class ConduitCrawler:
                 continue
 
             try:
+                await self._wait_crawl_delay(current)
                 await self._browser._navigate(current)
                 links = await self._extract_links(current)
                 for link in links:
@@ -149,6 +171,7 @@ class ConduitCrawler:
                 continue
 
             try:
+                await self._wait_crawl_delay(current_url)
                 await self._browser._navigate(current_url)
                 title = await self._browser._page.title()
                 text = await self._browser._page.evaluate(

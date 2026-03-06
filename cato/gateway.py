@@ -698,11 +698,13 @@ class Gateway:
         from .core.context_builder import ContextBuilder
         from .core.memory import MemorySystem
         from .tools import register_all_tools
+        from .agent_loop import register_all_tools as register_conduit_web_tools
         memory = MemorySystem(agent_id=self._cfg.agent_name)
         ctx    = ContextBuilder(max_tokens=self._cfg.context_budget_tokens)
         loop = AgentLoop(
             config=self._cfg, budget=self._budget, vault=self._vault,
             memory=memory, context_builder=ctx,
         )
-        register_all_tools(loop)
+        register_all_tools(loop)  # shell, file, memory, browser (Conduit when conduit_enabled)
+        register_conduit_web_tools(loop.register_tool, self._cfg)  # web.search, web.code, etc. with config
         return loop

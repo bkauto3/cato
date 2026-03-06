@@ -22,12 +22,12 @@ def register_all_tools(agent_loop) -> None:
 
     # Use Conduit browser engine if enabled in config, otherwise plain browser
     try:
-        conduit_enabled = getattr(agent_loop._config, "conduit_enabled", False)
+        conduit_enabled = getattr(agent_loop._cfg, "conduit_enabled", False)
     except Exception:
         conduit_enabled = False
 
     if conduit_enabled:
         from .conduit_bridge import ConduitBrowserTool
-        register_tool("browser", ConduitBrowserTool(agent_loop._config, agent_loop._budget).execute)
+        register_tool("browser", ConduitBrowserTool(agent_loop._cfg, agent_loop._budget).execute)
     else:
         register_tool("browser", BrowserTool().execute)

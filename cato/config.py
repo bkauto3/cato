@@ -60,6 +60,13 @@ class CatoConfig:
     # Conduit browser engine (opt-in)
     conduit_enabled: bool = False
     conduit_budget_per_session: int = 100   # cents
+    conduit_extract_max_chars: int = 20_000
+    searxng_url: str = ""
+    search_rerank_enabled: bool = False
+    conduit_crawl_delay_sec: float = 1.0
+    conduit_crawl_max_delay_sec: float = 60.0
+    selector_healing_enabled: bool = False
+    vault: Optional[dict] = None   # API keys / credentials for search, login, etc.
 
     # Safety gates
     safety_mode: str = "strict"             # strict | permissive | off
@@ -136,6 +143,48 @@ class CatoConfig:
     def is_first_run(self) -> bool:
         """Return True if no config file exists on disk."""
         return not self._path.exists()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Vault-style get for API keys (used by WebSearchTool and Conduit login)."""
+        if self.vault and isinstance(self.vault, dict):
+            return self.vault.get(key, default)
+        return default
+
+    def to_conduit_bridge_config(
+        self,
+        session_id: str,
+        data_dir: Optional[str] = None,
+        conduit_budget_per_session: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """
+        Build config dict for ConduitBridge so bridge _config drives Conduit behavior.
+
+        Use when creating the bridge (e.g. when conduit_enabled)::
+
+            bridge = ConduitBridge(
+                cfg.to_conduit_bridge_config(
+                    session_id,
+                    data_dir=str(get_data_dir()),
+                    conduit_budget_per_session=cfg.conduit_budget_per_session,
+                ),
+                session_id,
+            )
+        """
+        out: dict[str, Any] = {
+            "session_id": session_id,
+            "conduit_extract_max_chars": self.conduit_extract_max_chars,
+            "searxng_url": self.searxng_url or "",
+            "search_rerank_enabled": self.search_rerank_enabled,
+            "conduit_crawl_delay_sec": self.conduit_crawl_delay_sec,
+            "conduit_crawl_max_delay_sec": self.conduit_crawl_max_delay_sec,
+            "selector_healing_enabled": self.selector_healing_enabled,
+            "vault": self.vault,
+        }
+        if data_dir is not None:
+            out["data_dir"] = data_dir
+        if conduit_budget_per_session is not None:
+            out["conduit_budget_per_session"] = conduit_budget_per_session
+        return out
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise config to a plain dict (excluding private fields)."""

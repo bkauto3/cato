@@ -244,6 +244,37 @@ async def _sync_as_coro(fn, *args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
+# ConduitBrowserTool — agent-loop wrapper that builds bridge from CatoConfig
+# ---------------------------------------------------------------------------
+
+class ConduitBrowserTool:
+    """
+    Wrapper used by cato.tools when conduit_enabled=True.
+    Builds ConduitBridge from config via to_conduit_bridge_config() so shared
+    Conduit behavior (extraction, crawl delay, selector healing, vault) is config-driven.
+    """
+
+    def __init__(self, config: Any, budget: Any) -> None:
+        self._cfg = config
+        self._budget = budget
+
+    async def execute(self, args: dict) -> str:
+        from ..platform import get_data_dir
+        session_id = args.get("session_id", "default")
+        bridge_cfg = self._cfg.to_conduit_bridge_config(
+            session_id,
+            data_dir=str(get_data_dir()),
+            conduit_budget_per_session=getattr(self._cfg, "conduit_budget_per_session", None),
+        )
+        bridge = ConduitBridge(bridge_cfg, session_id)
+        await bridge.start()
+        try:
+            return await bridge.execute(args)
+        finally:
+            await bridge.stop()
+
+
+# ---------------------------------------------------------------------------
 # ConduitBridge
 # ---------------------------------------------------------------------------
 
@@ -254,17 +285,26 @@ class ConduitBridge:
     Implements the same async interface as BrowserTool but charges per action
     and enforces a per-session budget cap.
 
-    Two supported constructor styles::
+    **Preferred (config-driven):** Use CatoConfig.to_conduit_bridge_config() so
+    shared Conduit behavior (extraction limits, crawl delay, selector healing,
+    vault) comes from config::
 
-        # Style 1 — keyword args (preferred):
-        bridge = ConduitBridge(session_id="sess-001", budget_cents=100)
+        from cato.config import CatoConfig
+        from cato.platform import get_data_dir
 
-        # Style 2 — config dict + session_id positional (used by agent_loop/CLI):
-        bridge = ConduitBridge({"conduit_budget_per_session": 100, "data_dir": "/tmp"}, "sess-001")
-
+        cfg = CatoConfig.load()  # or your runtime config
+        bridge = ConduitBridge(
+            cfg.to_conduit_bridge_config(
+                session_id,
+                data_dir=str(get_data_dir()),
+                conduit_budget_per_session=100,
+            ),
+            session_id,
+        )
         await bridge.start()
-        result = await bridge.navigate("https://example.com")
-        await bridge.stop()
+
+    Legacy: ConduitBridge(session_id, budget_cents=100, data_dir=path) still works
+    but does not set _config (no extraction/crawl/selector-healing from config).
     """
 
     def __init__(
@@ -274,18 +314,18 @@ class ConduitBridge:
         budget_cents: int = 100,
         data_dir: Optional[Path] = None,
     ) -> None:
-        # Support both call styles:
-        #   ConduitBridge("sess-id", budget_cents=100)
-        #   ConduitBridge({"conduit_budget_per_session": 100, "data_dir": ...}, "sess-id")
+        # Config-driven: dict + session_id. Legacy: session_id str + budget_cents/data_dir.
         if isinstance(session_id_or_config, dict):
             cfg = session_id_or_config
             self._session_id = session_id_if_config or "default"
             self._budget_cents = int(cfg.get("conduit_budget_per_session", budget_cents))
             raw_data_dir = cfg.get("data_dir")
             data_dir = Path(raw_data_dir) if raw_data_dir else data_dir
+            self._config = cfg
         else:
             self._session_id = str(session_id_or_config)
             self._budget_cents = budget_cents
+            self._config = {}
 
         self._session_cost_cents_total: int = 0
 
@@ -417,22 +457,52 @@ class ConduitBridge:
 
     async def click(self, selector: str) -> dict:
         assert self._browser_tool is not None
-        result = await self._browser_tool._dispatch("click", {"selector": selector})
+        result, tier, resolved = await self._try_selector_healing("click", selector)
+        if tier > 1:
+            self._audit_log.log(
+                session_id=self._session_id,
+                action_type="tool_call",
+                tool_name="browser.selector_healing",
+                inputs={"original_selector": selector, "tier_used": tier, "resolved_selector": resolved},
+                outputs={"action": "click"},
+                cost_cents=0,
+                error="",
+            )
         self._audit("click", {"selector": selector}, result, url_or_selector=selector,
                     error=result.get("error", ""))
         return result
 
     async def type_text(self, selector: str, text: str) -> dict:
         assert self._browser_tool is not None
-        result = await self._browser_tool._dispatch("type", {"selector": selector, "text": text})
+        result, tier, resolved = await self._try_selector_healing("type", selector, text=text)
+        if tier > 1:
+            self._audit_log.log(
+                session_id=self._session_id,
+                action_type="tool_call",
+                tool_name="browser.selector_healing",
+                inputs={"original_selector": selector, "tier_used": tier, "resolved_selector": resolved},
+                outputs={"action": "type"},
+                cost_cents=0,
+                error="",
+            )
         self._audit("type", {"selector": selector, "text": text}, result,
                     url_or_selector=selector, error=result.get("error", ""))
         return result
 
     async def fill(self, selector: str, text: str) -> dict:
-        """Named alias for type_text — goes through _audit() with 'fill' action name."""
+        """Named alias for type_text — goes through _audit() with 'fill' action name; respects selector healing."""
         assert self._browser_tool is not None
-        result = await self._browser_tool._dispatch("fill", {"selector": selector, "text": text})
+        result, tier, resolved = await self._try_selector_healing("fill", selector, text=text)
+        if tier > 1:
+            self._audit_log.log(
+                session_id=self._session_id,
+                action_type="tool_call",
+                tool_name="browser.selector_healing",
+                inputs={"original_selector": selector, "tier_used": tier, "resolved_selector": resolved},
+                outputs={"action": "fill"},
+                cost_cents=0,
+                error="",
+            )
         self._audit("fill", {"selector": selector, "text": text}, result,
                     url_or_selector=selector, error=result.get("error", ""))
         return result
@@ -499,9 +569,18 @@ class ConduitBridge:
 
     async def hover(self, selector: str) -> dict:
         assert self._browser_tool is not None
-        inputs = {"selector": selector}
-        result = await self._browser_tool._dispatch("hover", inputs.copy())
-        self._audit("hover", inputs, result, url_or_selector=selector,
+        result, tier, resolved = await self._try_selector_healing("hover", selector)
+        if tier > 1:
+            self._audit_log.log(
+                session_id=self._session_id,
+                action_type="tool_call",
+                tool_name="browser.selector_healing",
+                inputs={"original_selector": selector, "tier_used": tier, "resolved_selector": resolved},
+                outputs={"action": "hover"},
+                cost_cents=0,
+                error="",
+            )
+        self._audit("hover", {"selector": selector}, result, url_or_selector=selector,
                     error=result.get("error", ""))
         return result
 
@@ -534,6 +613,25 @@ class ConduitBridge:
         self._audit("navigate_back", {}, result, error=result.get("error", ""))
         return result
 
+    async def _try_selector_healing(self, action: str, selector: str, **kwargs: Any) -> tuple:
+        """If selector_healing_enabled, try ARIA/text fallbacks after direct selector fails. Returns (result, tier_used, resolved_selector)."""
+        result = await self._browser_tool._dispatch(action, {"selector": selector, **kwargs})
+        if not result.get("error"):
+            return result, 1, selector
+        cfg = getattr(self, "_config", {}) or {}
+        if not cfg.get("selector_healing_enabled", False):
+            return result, 1, selector
+        for role in ("button", "link", "textbox", "menuitem"):
+            alt = f'role={role}[name="{selector}"]'
+            res = await self._browser_tool._dispatch(action, {"selector": alt, **kwargs})
+            if not res.get("error"):
+                return res, 2, alt
+        alt = f"text={selector}"
+        res = await self._browser_tool._dispatch(action, {"selector": alt, **kwargs})
+        if not res.get("error"):
+            return res, 3, alt
+        return result, 1, selector
+
     async def console_messages(self) -> dict:
         assert self._browser_tool is not None
         result = await self._browser_tool._dispatch("console_messages", {})
@@ -562,15 +660,18 @@ class ConduitBridge:
         )
         return result
 
-    async def extract_main(self) -> dict:
-        """Readability-style main content extraction (strips nav/header/footer noise)."""
+    async def extract_main(self, max_chars: Optional[int] = None, fmt: str = "text") -> dict:
+        """Readability-style main content extraction. max_chars defaults to config conduit_extract_max_chars."""
         assert self._browser_tool is not None
-        result = await self._browser_tool._dispatch("extract_main", {})
+        cfg = getattr(self, "_config", {}) or {}
+        if max_chars is None:
+            max_chars = int(cfg.get("conduit_extract_max_chars", 5000))
+        result = await self._browser_tool._dispatch("extract_main", {"max_chars": max_chars, "fmt": fmt})
         if "text" in result:
             result["text"] = _strip_voix_tags(result["text"])
         self._audit(
             "extract_main",
-            {"url": result.get("url", "")},
+            {"url": result.get("url", ""), "max_chars": max_chars},
             {"char_count": result.get("char_count", 0), "title": result.get("title", "")},
             error=result.get("error", ""),
         )
@@ -623,10 +724,15 @@ class ConduitBridge:
     # ------------------------------------------------------------------
 
     async def map_site(self, url: str, limit: int = 100, search: str = None) -> dict:
-        """Breadth-first site URL discovery. Robots.txt compliant."""
+        """Breadth-first site URL discovery. Robots.txt compliant; respects crawl delay from config."""
         assert self._browser_tool is not None
         from .conduit_crawl import ConduitCrawler
-        crawler = ConduitCrawler(self._browser_tool, self._audit_log, self._session_id)
+        cfg = getattr(self, "_config", {}) or {}
+        crawler = ConduitCrawler(
+            self._browser_tool, self._audit_log, self._session_id,
+            crawl_delay_sec=float(cfg.get("conduit_crawl_delay_sec", 1.0)),
+            crawl_max_delay_sec=float(cfg.get("conduit_crawl_max_delay_sec", 60.0)),
+        )
         return await crawler.map_site(url, limit=limit, search=search)
 
     async def crawl_site(
@@ -637,10 +743,15 @@ class ConduitBridge:
         exclude_paths: Optional[list] = None,
         limit: int = 20,
     ) -> dict:
-        """Bulk page extraction with depth control. Every page logged to hash chain."""
+        """Bulk page extraction with depth control. Every page logged to hash chain; respects crawl delay from config."""
         assert self._browser_tool is not None
         from .conduit_crawl import ConduitCrawler
-        crawler = ConduitCrawler(self._browser_tool, self._audit_log, self._session_id)
+        cfg = getattr(self, "_config", {}) or {}
+        crawler = ConduitCrawler(
+            self._browser_tool, self._audit_log, self._session_id,
+            crawl_delay_sec=float(cfg.get("conduit_crawl_delay_sec", 1.0)),
+            crawl_max_delay_sec=float(cfg.get("conduit_crawl_max_delay_sec", 60.0)),
+        )
         return await crawler.crawl_site(
             url, max_depth=max_depth,
             include_paths=include_paths, exclude_paths=exclude_paths,
@@ -733,7 +844,10 @@ class ConduitBridge:
             "console_messages":       lambda: self.console_messages(),
             # Wave 2: Extraction
             "eval":                   lambda: self.eval(args.get("js_code", "")),
-            "extract_main":           lambda: self.extract_main(),
+            "extract_main":           lambda: self.extract_main(
+                                          max_chars=args.get("max_chars"),
+                                          fmt=args.get("fmt", "text"),
+                                      ),
             "output_file":            lambda: self.output_to_file(
                                           args.get("filename", "output"),
                                           args.get("content", ""),
