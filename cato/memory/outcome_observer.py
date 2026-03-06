@@ -45,9 +45,11 @@ class OutcomeObserver:
         self,
         decision_memory: DecisionMemory,
         poll_interval_sec: float = 300.0,
+        observation_windows: Optional[dict[str, float]] = None,
     ) -> None:
         self._memory = decision_memory
         self._poll_interval = poll_interval_sec
+        self._observation_windows = observation_windows or _OBSERVATION_WINDOWS
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -80,7 +82,10 @@ class OutcomeObserver:
         open_records = self._memory.list_open()
         now = time.time()
         for record in open_records:
-            window = _get_observation_window(record.action_taken)
+            window = next(
+                (v for k, v in self._observation_windows.items() if k in record.action_taken.lower()),
+                _DEFAULT_WINDOW,
+            )
             age = now - record.timestamp
 
             if age < 60:  # Too fresh to observe
