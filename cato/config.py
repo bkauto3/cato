@@ -68,6 +68,12 @@ class CatoConfig:
     selector_healing_enabled: bool = False
     vault: Optional[dict] = None   # API keys / credentials for search, login, etc.
 
+    # Subagent routing (mirrors OpenClaw's ChatGPT-subagent feature)
+    # When enabled, TIER_C coding tasks are delegated to the chosen CLI backend
+    # so users can leverage plan-included usage from their preferred provider.
+    subagent_enabled: bool = False
+    subagent_coding_backend: str = "codex"  # claude | codex | gemini | cursor
+
     # Safety gates
     safety_mode: str = "strict"             # strict | permissive | off
 

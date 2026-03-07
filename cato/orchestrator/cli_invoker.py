@@ -1,12 +1,24 @@
 """
-Async CLI invoker for Claude CLI, Codex CLI, and Gemini CLI.
+Async CLI invoker for Claude CLI, Codex CLI, Gemini CLI, and Cursor Agent.
 Handles parallel invocation of multiple models with fallback support.
 
-All three models are invoked via their installed CLIs (claude, codex, gemini)
+All models are invoked via their installed CLIs (claude, codex, gemini, cursor)
 using asyncio.create_subprocess_exec() for true non-blocking parallelism.
 
 On Windows, .CMD batch wrappers (npm-installed CLIs like codex and gemini)
 are resolved via shutil.which() and executed through cmd.exe /c.
+
+Subagent routing
+----------------
+``invoke_subagent(prompt, task, backend)`` lets Cato delegate coding tasks to
+whichever CLI the user has configured as their ``subagent_coding_backend``.
+This mirrors what OpenClaw does with ChatGPT (route coding to GPT via OAuth),
+but Cato supports four backends: claude, codex, gemini, cursor.
+
+Users configure this in ~/.cato/config.yaml::
+
+    subagent_enabled: true
+    subagent_coding_backend: codex   # or claude / gemini / cursor
 """
 
 import asyncio
@@ -14,9 +26,11 @@ import logging
 import shutil
 import sys
 import time
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from cato.orchestrator.confidence_extractor import extract_confidence
+
+SubagentBackend = Literal["claude", "codex", "gemini", "cursor"]
 
 logger = logging.getLogger(__name__)
 
@@ -452,3 +466,133 @@ async def invoke_with_early_termination(
             await asyncio.gather(*model_tasks, return_exceptions=True)
     else:
         await asyncio.gather(*model_tasks, return_exceptions=True)
+
+
+async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
+    """
+    Invoke Cursor Agent CLI asynchronously (``cursor agent``).
+
+    Cursor exposes a headless terminal agent mode via ``cursor agent``.
+    It reads from stdin and writes the agent response to stdout, making it
+    suitable for subprocess invocation without launching the full IDE.
+
+    Unlike Codex (MCP server) or Claude (stream-json), Cursor agent speaks
+    plain text over stdio, so we pipe the prompt in and read stdout back.
+
+    Args:
+        prompt: Context or code to analyse.
+        task: High-level task description.
+
+    Returns:
+        dict with model, response, confidence, latency_ms, degraded, source keys.
+    """
+    start_time = time.time()
+
+    try:
+        cli_args = _resolve_cli("cursor")
+        full_prompt = f"Task: {task}\n\nContext: {prompt}"
+        # ``cursor agent`` reads the prompt from stdin when invoked with no file args
+        response_text = await _run_subprocess_async(
+            cli_args + ["agent"],
+            timeout_sec=90.0,
+        )
+        # If cursor agent wrote nothing useful, treat as degraded
+        if not response_text.strip():
+            raise SubprocessError("cursor", 0, "cursor agent returned empty output")
+
+        confidence = extract_confidence(response_text)
+        latency_ms = (time.time() - start_time) * 1000
+
+        return {
+            "model": "cursor",
+            "response": response_text,
+            "confidence": confidence,
+            "latency_ms": latency_ms,
+            "degraded": False,
+            "source": "subprocess",
+        }
+    except FileNotFoundError:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.warning("cursor CLI not found, using mock response")
+        return {
+            "model": "cursor",
+            "response": f"[Cursor Mock] CLI not installed. Task: {task}",
+            "confidence": 0.70,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "mock",
+        }
+    except SubprocessError as e:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.error("cursor agent failed (rc=%d): %s", e.returncode, e.stderr[:200])
+        return {
+            "model": "cursor",
+            "response": f"[Cursor Error] {e.stderr[:500]}",
+            "confidence": 0.55,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "subprocess",
+        }
+    except asyncio.TimeoutError:
+        latency_ms = (time.time() - start_time) * 1000
+        return {
+            "model": "cursor",
+            "response": "[Cursor Error] Process timed out after 90s",
+            "confidence": 0.55,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "subprocess",
+        }
+    except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        return {
+            "model": "cursor",
+            "response": f"[Cursor Error] {str(e)}",
+            "confidence": 0.55,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "mock",
+        }
+
+
+async def invoke_subagent(
+    prompt: str,
+    task: str,
+    backend: SubagentBackend = "codex",
+) -> Dict:
+    """
+    Route a task to a specific CLI backend as a subagent.
+
+    This is Cato's answer to OpenClaw's ChatGPT-subagent trick.  OpenClaw
+    lets users point coding tasks at their ChatGPT plan to leverage OpenAI's
+    included usage.  Cato does the same but supports four backends:
+
+    - ``claude``  — Claude Code CLI (uses your Anthropic plan / free tier)
+    - ``codex``   — OpenAI Codex CLI (uses your OpenAI plan)
+    - ``gemini``  — Google Gemini CLI (uses your Google plan / free tier)
+    - ``cursor``  — Cursor Agent CLI (uses your Cursor Pro subscription)
+
+    The active backend is read from ``CatoConfig.subagent_coding_backend``
+    (set in ~/.cato/config.yaml) so users can switch without code changes.
+
+    Args:
+        prompt: Context or code to send to the subagent.
+        task: High-level task description.
+        backend: Which CLI to invoke ("claude", "codex", "gemini", "cursor").
+
+    Returns:
+        Same dict shape as the individual invoke_* functions.
+    """
+    _dispatch: dict[str, Any] = {
+        "claude": invoke_claude_api,
+        "codex": invoke_codex_cli,
+        "gemini": invoke_gemini_cli,
+        "cursor": invoke_cursor_cli,
+    }
+    fn = _dispatch.get(backend)
+    if fn is None:
+        logger.warning("Unknown subagent backend %r, falling back to codex", backend)
+        fn = invoke_codex_cli
+
+    logger.info("Subagent routing task to backend=%r", backend)
+    return await fn(prompt, task)
