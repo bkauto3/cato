@@ -54,10 +54,15 @@ export function useTalkPageStream(
   const taskTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedRef         = useRef<boolean>(false);
   const messagesRef       = useRef<TalkMessage[]>([]);
+  const synthesisRef      = useRef<SynthesisResult | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    synthesisRef.current = synthesis;
+  }, []);  // synthesisRef keeps this stable without synthesis in deps
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,7 +88,7 @@ export function useTalkPageStream(
     if (taskTimerRef.current) clearTimeout(taskTimerRef.current);
     taskTimerRef.current = setTimeout(() => {
       const msgs = messagesRef.current;
-      if (msgs.length > 0 && !synthesis) {
+      if (msgs.length > 0 && !synthesisRef.current) {
         const best = [...msgs].sort((a, b) => b.confidence - a.confidence)[0];
         setSynthesis({
           primary: {
@@ -216,7 +221,9 @@ export function useTalkPageStream(
     if (closedRef.current) return;
     if (!taskId) return;
 
-    const host = wsBase ?? "127.0.0.1:8080";
+    // KRAK-4: validate wsBase is localhost-only — desktop app never connects to external hosts
+    const rawHost = wsBase ?? "127.0.0.1:19001";
+    const host = /^127\.0\.0\.1:\d+$/.test(rawHost) ? rawHost : "127.0.0.1:19001";
     const url  = `ws://${host}/ws/coding-agent/${encodeURIComponent(taskId)}`;
 
     setConnectionStatus("connecting");

@@ -40,7 +40,7 @@ interface RightSidebarProps {
 }
 
 const RightSidebar: React.FC<RightSidebarProps> = ({
-  synthesis, isLoading, onCopy, onSave, taskId, copiedState,
+  synthesis, isLoading, onCopy, onSave, copiedState,
 }) => {
   if (isLoading && !synthesis) {
     return (
@@ -145,12 +145,17 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
   }, []);
 
   const handleSave = useCallback((text: string, model: string) => {
+    // Sanitize model name to prevent path traversal in filename (KRAK-3)
+    const safeModel = model.replace(/[^a-z0-9-]/gi, "_").slice(0, 32);
     const blob = new Blob([text], { type: "text/plain" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `cato-${model}-result.txt`;
+    a.download = `cato-${safeModel}-result.txt`;
+    // Append to DOM so Firefox/Safari trigger the download reliably (ARCH-6)
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, []);
 

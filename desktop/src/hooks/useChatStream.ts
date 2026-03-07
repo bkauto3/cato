@@ -38,7 +38,9 @@ export function useChatStream(wsBase?: string): UseChatStreamResult {
   const sessionIdRef = useRef(crypto.randomUUID());
 
   const connect = useCallback(() => {
-    const host = wsBase ?? "127.0.0.1:8081";
+    // KRAK-4: validate wsBase is localhost-only
+    const rawHost = wsBase ?? "127.0.0.1:19001";
+    const host = /^127\.0\.0\.1:\d+$/.test(rawHost) ? rawHost : "127.0.0.1:19001";
     const url = `ws://${host}/ws`;
 
     setConnectionStatus("connecting");

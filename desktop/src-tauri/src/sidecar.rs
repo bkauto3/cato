@@ -135,8 +135,12 @@ impl SidecarManager {
         }
     }
 
-    /// Find the cato binary — try sidecar path first, then PATH.
+    /// Find the cato binary — bundled sidecar → known install paths → PATH (dev only).
+    ///
+    /// Security: avoids resolving bare "cato" from CWD on Windows (PATH hijacking).
+    /// Checks absolute locations before falling back to PATH resolution.
     fn find_cato_binary() -> String {
+        // 1. Bundled alongside the app binary
         if let Ok(exe) = std::env::current_exe() {
             let sidecar = exe.parent().unwrap_or(exe.as_path()).join("cato");
             if sidecar.exists() {
@@ -144,7 +148,35 @@ impl SidecarManager {
             }
         }
 
-        // Fallback: assume `cato` is on PATH (works during development)
+        // 2. Known absolute install locations (Windows editable pip install)
+        let known_paths = [
+            r"C:\Users\Administrator\.local\bin\cato.exe",
+            r"C:\Users\Administrator\AppData\Local\Programs\Python\Python312\Scripts\cato.exe",
+            r"C:\Program Files\Python312\Scripts\cato.exe",
+        ];
+        for path in &known_paths {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+
+        // 3. Resolve via PATH using `where` (Windows) to get the full absolute path.
+        //    This is safer than passing a bare name to Command::new which would
+        //    search CWD first on some Windows configurations.
+        if let Ok(output) = std::process::Command::new("where").arg("cato").output() {
+            if let Ok(stdout) = std::str::from_utf8(&output.stdout) {
+                if let Some(line) = stdout.lines().next() {
+                    let abs_path = line.trim().to_string();
+                    if !abs_path.is_empty() {
+                        log::info!("Resolved cato via PATH: {}", abs_path);
+                        return abs_path;
+                    }
+                }
+            }
+        }
+
+        // Final fallback — development only
+        log::warn!("cato binary not found at known locations; falling back to bare 'cato'");
         "cato".to_string()
     }
 }

@@ -19,10 +19,14 @@ interface DaemonInfo {
   status: "starting" | "ready" | "stopped" | "error";
 }
 
+// Cato gateway ports: webchat_port 19000 (HTTP), webchat_port+1 19001 (WebSocket)
+const DAEMON_HTTP_PORT = 19000;
+const DAEMON_WS_PORT   = 19001;
+
 function useDaemonInfo(): DaemonInfo {
   const [info, setInfo] = useState<DaemonInfo>({
-    httpPort: 8080,
-    wsPort: 8081,
+    httpPort: DAEMON_HTTP_PORT,
+    wsPort: DAEMON_WS_PORT,
     status: "starting",
   });
 
@@ -34,7 +38,8 @@ function useDaemonInfo(): DaemonInfo {
     const poll = async () => {
       while (!cancelled && attempts < maxAttempts) {
         try {
-          const res = await fetch(`http://127.0.0.1:${info.httpPort}/health`);
+          // Use constant port — avoids stale closure on state read
+          const res = await fetch(`http://127.0.0.1:${DAEMON_HTTP_PORT}/health`);
           if (res.ok) {
             setInfo((prev) => ({ ...prev, status: "ready" }));
             return;
@@ -51,7 +56,7 @@ function useDaemonInfo(): DaemonInfo {
     };
     poll();
     return () => { cancelled = true; };
-  }, [info.httpPort]);
+  }, []);
 
   return info;
 }
