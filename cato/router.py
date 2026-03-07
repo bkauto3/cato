@@ -36,6 +36,9 @@ MODEL_TRANSLATIONS: dict[str, str] = {
     "groq/llama-3.3-70b":            "llama-3.3-70b-versatile",
     "mistral/mistral-small":         "mistral-small-latest",
     "minimax/minimax-2.5":           "abab7-chat-preview",
+    "minimax/minimax-m2.5":          "abab7-chat-preview",
+    "openrouter/minimax/minimax-2.5":  "abab7-chat-preview",
+    "openrouter/minimax/minimax-m2.5": "abab7-chat-preview",
     "moonshot/kimi-k2.5":            "moonshot-v1-8k",
 }
 
@@ -76,7 +79,9 @@ class ModelRouter:
         swarmsync_api_url: str = "https://api.swarmsync.ai/v1/chat/completions",
     ) -> None:
         self._vault = vault
-        self._preferred = preferred_model
+        # Translate OpenRouter-style slugs (e.g. "openrouter/minimax/minimax-m2.5")
+        # to native model IDs so _resolve_provider() can match them correctly.
+        self._preferred = MODEL_TRANSLATIONS.get(preferred_model, preferred_model)
         self._blocked: set[str] = set(blocked_models or [])
         self._swarmsync_url = swarmsync_api_url
 
@@ -107,7 +112,7 @@ class ModelRouter:
         for m in _ECONOMY + _MID + _PREMIUM:
             if m not in self._blocked:
                 return m
-        return "claude-sonnet-4-6"
+        return _ECONOMY[0]  # last-resort: cheapest available model
 
     async def _swarmsync_route(
         self, messages: list[dict], api_key: str, score: float
