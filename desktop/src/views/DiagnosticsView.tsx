@@ -13,30 +13,6 @@ interface DiagnosticsViewProps {
 type TabId = "tiers" | "contradictions" | "decisions" | "anomalies" | "corrections";
 
 // ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-function LoadingRow() {
-  return (
-    <tr>
-      <td colSpan={10} style={{ textAlign: "center", padding: "1rem", color: "var(--text-secondary, #aaa)" }}>
-        Loading...
-      </td>
-    </tr>
-  );
-}
-
-function ErrorRow({ message }: { message: string }) {
-  return (
-    <tr>
-      <td colSpan={10} style={{ textAlign: "center", padding: "1rem", color: "var(--error, #f87171)" }}>
-        {message}
-      </td>
-    </tr>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Query Tiers Tab
 // ---------------------------------------------------------------------------
 

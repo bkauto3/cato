@@ -317,12 +317,10 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             content = str(body.get("content", ""))
             if gateway is None:
                 return web.json_response({"status": "error", "message": "gateway unavailable"}, status=503)
-            skills_dir = getattr(gateway, "_skills_dir", None)
-            if skills_dir is None:
-                # Attempt to locate the skills directory from the gateway
-                skills_dir = Path.home() / ".cato" / "skills"
+            if hasattr(gateway, "_skills_dir") and callable(gateway._skills_dir):
+                skills_dir = gateway._skills_dir()
             else:
-                skills_dir = Path(skills_dir)
+                skills_dir = Path.home() / ".cato" / "skills"
             # Find the skill directory
             target = None
             for child in skills_dir.iterdir() if skills_dir.exists() else []:
@@ -357,7 +355,10 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             # Store enabled state in a simple marker file in the skill directory
             if gateway is None:
                 return web.json_response({"status": "error", "message": "gateway unavailable"}, status=503)
-            skills_dir = Path(getattr(gateway, "_skills_dir", Path.home() / ".cato" / "skills"))
+            if hasattr(gateway, "_skills_dir") and callable(gateway._skills_dir):
+                skills_dir = gateway._skills_dir()
+            else:
+                skills_dir = Path.home() / ".cato" / "skills"
             skill_path = skills_dir / name
             if skill_path.exists():
                 marker = skill_path / ".disabled"
