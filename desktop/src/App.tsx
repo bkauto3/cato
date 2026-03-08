@@ -22,6 +22,7 @@ import { ConfigView } from "./views/ConfigView";
 import { BudgetView } from "./views/BudgetView";
 import { AlertsView } from "./views/AlertsView";
 import { AuthKeysView } from "./views/AuthKeysView";
+import { IdentityView } from "./views/IdentityView";
 import "./styles/app.css";
 
 type DaemonStatus = "starting" | "ready" | "stopped" | "error";
@@ -107,6 +108,8 @@ function renderView(view: View, daemon: DaemonInfo, onNavigate: (v: View) => voi
       return <AlertsView httpPort={httpPort} />;
     case "auth-keys":
       return <AuthKeysView httpPort={httpPort} />;
+    case "identity":
+      return <IdentityView httpPort={httpPort} />;
     default:
       return null;
   }

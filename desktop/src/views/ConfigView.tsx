@@ -150,7 +150,24 @@ export const ConfigView: React.FC<ConfigViewProps> = ({ httpPort }) => {
             </select>
           </div>
 
-          <div className="section-title">SwarmSync</div>
+          <div className="section-title">Coding Agent</div>
+          <div className="form-row">
+            <label>Primary Backend</label>
+            <select className="settings-select" value={String(config.subagent_coding_backend ?? "codex")}
+              onChange={(e) => setField("subagent_coding_backend", e.target.value)}>
+              <option value="codex">Codex (recommended — warm pool)</option>
+              <option value="cursor">Cursor Agent</option>
+              <option value="claude">Claude Code CLI</option>
+              <option value="gemini">Gemini (degraded on this machine)</option>
+            </select>
+          </div>
+          <div className="form-row">
+            <label>Subagent Enabled</label>
+            <input type="checkbox" checked={Boolean(config.subagent_enabled ?? true)}
+              onChange={(e) => setField("subagent_enabled", e.target.checked)} />
+          </div>
+
+          <div className="section-title">Chat Model</div>
           <div className="form-row">
             <label>SwarmSync Enabled</label>
             <input type="checkbox" checked={Boolean(config.swarmsync_enabled)}

@@ -49,6 +49,13 @@ _DASHBOARD      = Path(__file__).parent / "dashboard.html"
 _CODING_AGENT   = Path(__file__).parent / "coding_agent.html"
 _START_TIME     = time.monotonic()
 
+# Workspace identity files live here
+def _workspace_dir() -> Path:
+    from cato.platform import get_data_dir
+    return get_data_dir() / "default" / "workspace"
+
+_WORKSPACE_ALLOWED = {"SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "HEARTBEAT.md"}
+
 
 @web.middleware
 async def cors_middleware(request: web.Request, handler):
@@ -768,6 +775,46 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             logger.error("patch_memory_content error: %s", exc)
             return web.json_response({"status": "error", "message": str(exc)}, status=500)
 
+    async def workspace_list(request: web.Request) -> web.Response:
+        """GET /api/workspace/files — list identity .md files."""
+        try:
+            d = _workspace_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            files = [f.name for f in sorted(d.iterdir()) if f.suffix == ".md"]
+            return web.json_response(files)
+        except Exception as exc:
+            logger.error("workspace_list error: %s", exc)
+            return web.json_response([], status=500)
+
+    async def workspace_get(request: web.Request) -> web.Response:
+        """GET /api/workspace/file?name=SOUL.md — read a workspace file."""
+        name = request.rel_url.query.get("name", "").strip()
+        if not name or ".." in name or "/" in name or "\\" in name:
+            return web.json_response({"error": "invalid name"}, status=400)
+        try:
+            p = _workspace_dir() / name
+            content = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+            return web.json_response({"name": name, "content": content})
+        except Exception as exc:
+            logger.error("workspace_get error: %s", exc)
+            return web.json_response({"name": name, "content": ""}, status=500)
+
+    async def workspace_put(request: web.Request) -> web.Response:
+        """PUT /api/workspace/file — write a workspace file."""
+        try:
+            body = await request.json()
+            name = str(body.get("name", "")).strip()
+            content = str(body.get("content", ""))
+            if not name or ".." in name or "/" in name or "\\" in name:
+                return web.json_response({"error": "invalid name"}, status=400)
+            d = _workspace_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            (d / name).write_text(content, encoding="utf-8")
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("workspace_put error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
     async def memory_stats(request: web.Request) -> web.Response:
         """GET /api/memory/stats — facts count + KG node/edge counts from SQLite memories."""
         try:
@@ -956,6 +1003,10 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/api/memory/content",            memory_content)
     app.router.add_route("PATCH", "/api/memory/content", patch_memory_content)
     app.router.add_get("/api/memory/stats",              memory_stats)
+    # Workspace identity files
+    app.router.add_get("/api/workspace/files",           workspace_list)
+    app.router.add_get("/api/workspace/file",            workspace_get)
+    app.router.add_put("/api/workspace/file",            workspace_put)
     # Action Guard
     app.router.add_get("/api/action-guard/status",       action_guard_status)
     # Daemon

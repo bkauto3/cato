@@ -95,11 +95,14 @@ async def _run_subprocess_async(
         asyncio.TimeoutError: If the process exceeds timeout_sec.
         SubprocessError: If the process exits with non-zero return code.
     """
+    import os as _os
+    _env = {k: v for k, v in _os.environ.items() if k != "CLAUDECODE"}
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=_env,
     )
     try:
         stdout, stderr = await asyncio.wait_for(

@@ -247,11 +247,16 @@ class PersistentProcess:
         args = self.protocol.spawn_args()
         logger.info("Starting persistent %s process: %s", self.name, " ".join(args))
 
+        # Unset CLAUDECODE so claude CLI doesn't refuse with "nested session" error
+        import os as _os
+        env = {k: v for k, v in _os.environ.items() if k != "CLAUDECODE"}
+
         self._proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
 
         # Optional initialization handshake

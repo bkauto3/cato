@@ -20,7 +20,8 @@ export type View =
   | "config"
   | "budget"
   | "alerts"
-  | "auth-keys";
+  | "auth-keys"
+  | "identity";
 
 interface NavItem {
   id: View;
@@ -61,9 +62,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Settings",
     items: [
-      { id: "config",    label: "Config",    icon: "⚙" },
-      { id: "budget",    label: "Budget",    icon: "$" },
-      { id: "alerts",    label: "Alerts",    icon: "🔔" },
+      { id: "identity",  label: "Identity",   icon: "🪪" },
+      { id: "config",    label: "Config",     icon: "⚙" },
+      { id: "budget",    label: "Budget",     icon: "$" },
+      { id: "alerts",    label: "Alerts",     icon: "🔔" },
       { id: "auth-keys", label: "Auth & Keys", icon: "🔑" },
     ],
   },

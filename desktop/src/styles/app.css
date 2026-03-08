@@ -1643,3 +1643,85 @@ select:focus-visible {
   line-height: 1;
 }
 .btn-cancel-sm:hover { background: #7f1d1d44; }
+
+/* ── Identity View ─────────────────────────────────────────── */
+.identity-view { display: flex; flex-direction: column; height: 100%; }
+
+.identity-layout {
+  display: flex;
+  flex: 1;
+  gap: 0;
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.identity-file-list {
+  width: 160px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  overflow-y: auto;
+}
+
+.identity-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s, color .12s;
+}
+.identity-file-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+.identity-file-btn.active { background: rgba(59,130,246,0.15); color: #93c5fd; font-weight: 700; }
+
+.identity-file-name { flex: 1; }
+
+.identity-dirty-dot {
+  width: 7px; height: 7px;
+  background: #f59e0b;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.identity-editor-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-dark);
+}
+
+.identity-file-desc {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.identity-editor {
+  flex: 1;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  border: none;
+  padding: 16px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+}
