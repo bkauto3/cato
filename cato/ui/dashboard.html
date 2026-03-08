@@ -213,6 +213,112 @@ textarea.form-input{resize:vertical;min-height:80px}
 .wizard-actions{display:flex;justify-content:space-between;margin-top:24px}
 .wizard-step{display:none}
 .wizard-step.active{display:block}
+
+/* ── CHUNK 1: Chat streaming + tool cards ────────────────────────── */
+.msg-streaming{border-left:2px solid #3b82f6!important}
+.msg-cursor{display:inline-block;width:2px;height:1em;background:#3b82f6;vertical-align:text-bottom;animation:blink .7s steps(1) infinite;margin-left:1px}
+.tool-card{background:#0f1117;border:1px solid #374151;border-radius:8px;margin:8px 0;overflow:hidden}
+.tool-card-header{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;user-select:none}
+.tool-card-header:hover{background:#1e2433}
+.tool-card-name{font-size:12px;font-weight:600;color:#a78bfa;font-family:'Cascadia Code','Consolas',monospace}
+.tool-card-arrow{font-size:10px;color:#4b5563;transition:transform .2s;margin-left:auto}
+.tool-card-body{display:none;padding:10px 12px;border-top:1px solid #1e2433;font-size:12px;color:#64748b;white-space:pre-wrap;word-break:break-all;font-family:'Cascadia Code','Consolas',monospace}
+.tool-card-body.open{display:block}
+.token-usage-line{font-size:10px;color:#374151;margin-top:4px;display:flex;gap:8px;flex-wrap:wrap}
+.token-usage-line span{color:#4b5563}
+.chat-readonly-banner{background:#78350f44;border:1px solid #78350f;border-radius:6px;padding:8px 14px;margin:8px 20px;font-size:12px;color:#fcd34d;text-align:center;display:none}
+.abort-btn{background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:500;display:none;cursor:pointer}
+.abort-btn:hover{background:#991b1b}
+.routed-to{font-size:10px;color:#4b5563;margin-top:3px;font-style:italic}
+
+/* ── CHUNK 2: SwarmSync + CLI auth + Vault ───────────────────────── */
+.swarmsync-dot{width:8px;height:8px;border-radius:50%;background:#4b5563;display:inline-block;flex-shrink:0}
+.swarmsync-dot.enabled{background:#22c55e;box-shadow:0 0 5px #22c55e88}
+.cli-status-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #1e2433}
+.cli-status-row:last-child{border-bottom:none}
+.cli-logo{font-size:20px;width:32px;text-align:center;flex-shrink:0}
+.cli-info{flex:1}
+.cli-name{font-size:13px;font-weight:600;color:#e2e8f0}
+.cli-version{font-size:11px;color:#4b5563;margin-top:1px}
+.cli-badges{display:flex;gap:6px;margin-top:4px}
+.vault-key-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #1e2433}
+.vault-key-row:last-child{border-bottom:none}
+.vault-key-name{flex:1;font-family:'Cascadia Code','Consolas',monospace;font-size:12px;color:#93c5fd}
+.vault-key-set{color:#22c55e;font-size:11px}
+.vault-key-missing{color:#64748b;font-size:11px}
+
+/* ── CHUNK 3: Dashboard home metrics ─────────────────────────────── */
+#dashboard-page.active{display:block}
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px}
+.metric-card{background:#1a1d26;border:1px solid #1e2433;border-radius:10px;padding:18px}
+.metric-label{font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.metric-value{font-size:26px;font-weight:700;color:#f1f5f9;line-height:1}
+.metric-sub{font-size:11px;color:#4b5563;margin-top:4px}
+.metric-online{color:#22c55e}
+.metric-offline{color:#ef4444}
+.dash-model-bar{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.dash-model-label{width:130px;font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.dash-model-fill-wrap{flex:1;background:#0f1117;border-radius:3px;height:12px;overflow:hidden}
+.dash-model-fill{height:100%;background:#3b82f6;border-radius:3px;transition:width .4s}
+.dash-model-pct{font-size:11px;color:#4b5563;width:36px;text-align:right;flex-shrink:0}
+.quick-launch-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+
+/* ── CHUNK 4: Skill editor panel ─────────────────────────────────── */
+.skill-editor-wrap{display:flex;gap:0;height:calc(100vh - 200px);min-height:300px}
+.skill-editor-sidebar{width:260px;min-width:200px;border-right:1px solid #1e2433;overflow-y:auto;padding-right:0}
+.skill-editor-main{flex:1;display:flex;flex-direction:column;padding-left:16px}
+.skill-editor-title{font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:8px}
+.skill-editor-textarea{flex:1;background:#0a0c11;border:1px solid #1e2433;border-radius:6px;padding:14px;color:#e2e8f0;font-family:'Cascadia Code','Consolas',monospace;font-size:12px;line-height:1.6;resize:none;outline:none;min-height:300px}
+.skill-editor-textarea:focus{border-color:#3b82f6}
+.skill-toggle{position:relative;width:36px;height:20px;cursor:pointer;flex-shrink:0}
+.skill-toggle input{opacity:0;width:0;height:0;position:absolute}
+.skill-toggle-track{position:absolute;inset:0;background:#374151;border-radius:20px;transition:background .2s}
+.skill-toggle input:checked + .skill-toggle-track{background:#22c55e}
+.skill-toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .2s}
+.skill-toggle input:checked ~ .skill-toggle-thumb{transform:translateX(16px)}
+
+/* ── CHUNK 5: Cron enhancements ──────────────────────────────────── */
+.cron-expr-hint{font-size:11px;color:#93c5fd;margin-top:4px;min-height:14px;font-style:italic}
+.cron-history-row{font-size:11px;color:#4b5563;padding:3px 0;border-bottom:1px solid #0f111744}
+.cron-history-row:last-child{border-bottom:none}
+
+/* ── CHUNK 6: Budget + Conduit ────────────────────────────────────── */
+.hard-cap-badge{background:#14532d44;border:1px solid #166534;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.hard-cap-badge-icon{font-size:18px;flex-shrink:0}
+.hard-cap-badge-text{font-size:13px;color:#86efac}
+.hard-cap-badge-title{font-weight:700;color:#4ade80;margin-bottom:2px}
+.budget-summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.budget-stat-card{background:#0f1117;border:1px solid #1e2433;border-radius:8px;padding:14px}
+.budget-stat-label{font-size:11px;color:#4b5563;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.budget-stat-value{font-size:22px;font-weight:700;color:#f1f5f9}
+.budget-stat-sub{font-size:11px;color:#64748b;margin-top:2px}
+.conduit-provider-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #1e2433}
+.conduit-provider-row:last-child{border-bottom:none}
+.conduit-provider-icon{font-size:18px;width:28px;text-align:center;flex-shrink:0}
+.conduit-provider-name{flex:1;font-weight:600;font-size:13px;color:#e2e8f0}
+.conduit-provider-key{font-size:11px;color:#64748b}
+
+/* ── CHUNK 7: Sessions + Audit + Memory ──────────────────────────── */
+.audit-entry-row{display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid #0f111744;font-size:12px;align-items:flex-start}
+.audit-entry-row:last-child{border-bottom:none}
+.audit-hash{font-family:'Cascadia Code','Consolas',monospace;font-size:10px;color:#374151;word-break:break-all}
+.memory-file-card{background:#0f1117;border:1px solid #1e2433;border-radius:8px;padding:12px 16px;cursor:pointer;transition:border-color .15s;margin-bottom:8px}
+.memory-file-card:hover{border-color:#3b82f6}
+.memory-file-name{font-size:13px;font-weight:600;color:#93c5fd;margin-bottom:4px}
+.memory-file-meta{font-size:11px;color:#4b5563}
+.memory-editor-ta{width:100%;background:#0a0c11;border:1px solid #1e2433;border-radius:6px;padding:14px;color:#e2e8f0;font-family:'Cascadia Code','Consolas',monospace;font-size:12px;line-height:1.6;resize:vertical;outline:none;min-height:300px}
+.memory-editor-ta:focus{border-color:#3b82f6}
+
+/* ── CHUNK 8: Config enhancements + Differentiators ─────────────── */
+.action-guard-rule{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #1e2433}
+.action-guard-rule:last-child{border-bottom:none}
+.action-guard-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+.action-guard-title{font-size:13px;font-weight:600;color:#e2e8f0}
+.action-guard-desc{font-size:11px;color:#64748b;margin-top:2px}
+.audit-integrity-badge{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #374151;background:#0f1117;margin-top:8px;width:fit-content}
+.audit-integrity-dot{width:8px;height:8px;border-radius:50%;background:#4b5563;flex-shrink:0}
+.audit-integrity-dot.valid{background:#22c55e;box-shadow:0 0 5px #22c55e88}
+.audit-integrity-dot.invalid{background:#ef4444}
 </style>
 </head>
 <body>
@@ -303,6 +409,7 @@ textarea.form-input{resize:vertical;min-height:80px}
       <div class="sidebar-logo">
         <img src="data:image/jpeg;base64,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" alt="Cato" style="width:100%;height:auto;display:block;image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges;" />
         <div class="health-pill" id="health-pill">
+          <img src="/favicon.png" alt="Cato" style="width:16px;height:16px;border-radius:3px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
           <div class="health-dot" id="health-dot"></div>
           <span class="health-label" id="health-label">Offline</span>
         </div>
@@ -310,6 +417,14 @@ textarea.form-input{resize:vertical;min-height:80px}
     </div>
 
     <div class="nav-section">
+      <div class="nav-group-header" onclick="toggleGroup('overview')">
+        <span>Overview</span>
+        <span class="nav-group-arrow open" id="arrow-overview">&#9660;</span>
+      </div>
+      <div id="group-overview">
+        <div class="nav-item" data-page="dashboard" onclick="navigate('dashboard')"><span class="nav-item-icon">&#127968;</span>Dashboard</div>
+      </div>
+
       <div class="nav-group-header" onclick="toggleGroup('workspace')">
         <span>Workspace</span>
         <span class="nav-group-arrow open" id="arrow-workspace">&#9660;</span>
@@ -335,6 +450,8 @@ textarea.form-input{resize:vertical;min-height:80px}
       </div>
       <div id="group-monitoring">
         <div class="nav-item" data-page="usage" onclick="navigate('usage')"><span class="nav-item-icon">&#128200;</span>Usage</div>
+        <div class="nav-item" data-page="audit" onclick="navigate('audit')"><span class="nav-item-icon">&#128274;</span>Audit Log</div>
+        <div class="nav-item" data-page="memory" onclick="navigate('memory')"><span class="nav-item-icon">&#129504;</span>Memory</div>
         <div class="nav-item" data-page="logs" onclick="navigate('logs')"><span class="nav-item-icon">&#128196;</span>Logs</div>
         <div class="nav-item" data-page="alerts" onclick="navigate('alerts')"><span class="nav-item-icon">&#128276;</span>Alerts <span id="alert-badge" style="margin-left:4px;display:none" class="badge badge-red">0</span></div>
       </div>
@@ -346,12 +463,17 @@ textarea.form-input{resize:vertical;min-height:80px}
       <div id="group-settings">
         <div class="nav-item" data-page="config" onclick="navigate('config')"><span class="nav-item-icon">&#9881;</span>Config</div>
         <div class="nav-item" data-page="budget" onclick="navigate('budget')"><span class="nav-item-icon">&#128176;</span>Budget</div>
+        <div class="nav-item" data-page="conduit" onclick="navigate('conduit')"><span class="nav-item-icon">&#128241;</span>Conduit</div>
+        <div class="nav-item" data-page="vault" onclick="navigate('vault')"><span class="nav-item-icon">&#128272;</span>Vault &amp; Auth <span class="swarmsync-dot" id="swarmsync-nav-dot" style="margin-left:4px"></span></div>
       </div>
     </div>
 
     <div class="sidebar-footer">
       <span class="version-badge">v0.1.0</span>
-      <a class="gh-link" href="https://github.com/your-org/cato" target="_blank">GitHub &#8599;</a>
+      <div id="audit-integrity-footer" class="audit-integrity-badge" title="Audit chain integrity">
+        <div class="audit-integrity-dot" id="audit-integrity-dot"></div>
+        <span id="audit-integrity-label" style="color:#4b5563">Audit chain</span>
+      </div>
     </div>
   </nav>
 
@@ -380,6 +502,7 @@ textarea.form-input{resize:vertical;min-height:80px}
           <div id="session-list-items"></div>
         </div>
         <div class="chat-area">
+          <div class="chat-readonly-banner" id="chat-readonly-banner">&#9888; Daemon offline — messages disabled. Showing cached history.</div>
           <div class="chat-messages" id="chat-messages">
             <div class="chat-empty" id="chat-empty">
               <div class="chat-empty-icon">&#128172;</div>
@@ -387,8 +510,9 @@ textarea.form-input{resize:vertical;min-height:80px}
             </div>
           </div>
           <div class="chat-input-bar">
-            <textarea id="chat-input" placeholder="Type a message... (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
-            <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+            <textarea id="chat-input" placeholder="Type a message... (Enter to send, Shift+Enter for newline, /compact /status /new for commands)" rows="1"></textarea>
+            <button class="abort-btn" id="abort-btn" onclick="abortStreaming()" title="Stop generation">&#9632; Stop</button>
+            <button class="btn btn-primary" id="send-btn" onclick="sendMessage()">Send</button>
           </div>
         </div>
       </div>
@@ -430,7 +554,8 @@ textarea.form-input{resize:vertical;min-height:80px}
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
             <div class="form-group" style="margin:0">
               <label class="form-label">Cron Expression</label>
-              <input class="form-input" id="cron-schedule" placeholder="0 9 * * 1-5">
+              <input class="form-input" id="cron-schedule" placeholder="0 9 * * 1-5" oninput="updateCronHint(this.value)">
+              <div class="cron-expr-hint" id="cron-expr-hint"></div>
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Agent</label>
@@ -441,6 +566,10 @@ textarea.form-input{resize:vertical;min-height:80px}
             <label class="form-label">Prompt</label>
             <textarea class="form-input" id="cron-prompt" placeholder="Run daily report..." rows="2"></textarea>
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <input type="checkbox" id="cron-delete-after-run" style="width:16px;height:16px;cursor:pointer">
+            <label for="cron-delete-after-run" style="font-size:12px;color:#94a3b8;cursor:pointer">Delete after first run</label>
+          </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button class="btn btn-ghost btn-sm" onclick="toggleCronForm()">Cancel</button>
             <button class="btn btn-primary btn-sm" onclick="saveCron()">Save</button>
@@ -448,20 +577,99 @@ textarea.form-input{resize:vertical;min-height:80px}
         </div>
         <div class="card" style="padding:0;overflow:hidden">
           <table class="table" id="cron-table">
-            <thead><tr><th>Schedule</th><th>Agent</th><th>Prompt</th><th>Last Run</th><th>Next Run</th><th></th></tr></thead>
+            <thead><tr><th>Enabled</th><th>Schedule</th><th>Agent</th><th>Prompt</th><th>Last Run</th><th></th></tr></thead>
             <tbody id="cron-tbody"></tbody>
           </table>
+        </div>
+        <!-- Cron job history panel -->
+        <div id="cron-history-panel" style="display:none;margin-top:16px" class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div class="card-title" style="margin:0">Run History: <span id="cron-history-job-name" style="color:#93c5fd"></span></div>
+            <button class="btn btn-ghost btn-sm" onclick="closeCronHistory()">&#10005;</button>
+          </div>
+          <div id="cron-history-list"><span style="color:#4b5563;font-size:12px">No history.</span></div>
         </div>
       </div>
 
       <!-- Sessions -->
       <div id="sessions-page" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <span style="color:#94a3b8;font-size:13px">Active daemon sessions</span>
+          <button class="btn btn-secondary btn-sm" onclick="refreshSessionsPage()">Refresh</button>
+        </div>
         <div class="card">
           <div class="card-title">Active Sessions</div>
           <table class="table">
-            <thead><tr><th>Session ID</th><th>Channel</th><th>Queue Depth</th><th>Last Active</th><th></th></tr></thead>
+            <thead><tr><th>Session ID</th><th>Channel</th><th>Queue Depth</th><th>Running</th><th></th></tr></thead>
             <tbody id="sessions-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Audit Log (CHUNK 7) -->
+      <div id="audit-page" class="page">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <input class="form-input" id="audit-session-filter" placeholder="Filter by session ID..." style="width:220px" oninput="filterAuditEntries()">
+          <select class="form-input" id="audit-action-filter" onchange="filterAuditEntries()" style="width:180px">
+            <option value="">All action types</option>
+            <option value="tool_call">tool_call</option>
+            <option value="message">message</option>
+            <option value="reversibility">reversibility</option>
+            <option value="error">error</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="loadAuditEntries()">Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="verifyAuditChain()">Verify Chain</button>
+          <button class="btn btn-ghost btn-sm" onclick="downloadAuditLog()" title="Download as JSONL">&#8595; Download</button>
+          <span id="audit-verify-result" style="font-size:12px;display:none"></span>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <div id="audit-entries-list">
+            <div style="padding:24px;text-align:center;color:#4b5563;font-size:13px">Loading audit log...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Memory Browser (CHUNK 7) -->
+      <div id="memory-page" class="page">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px" id="memory-stats-grid">
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">Facts</div>
+            <div class="budget-stat-value" id="mem-stat-facts">—</div>
+            <div class="budget-stat-sub">stored facts</div>
+          </div>
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">KG Nodes</div>
+            <div class="budget-stat-value" id="mem-stat-nodes">—</div>
+            <div class="budget-stat-sub">knowledge graph</div>
+          </div>
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">KG Edges</div>
+            <div class="budget-stat-value" id="mem-stat-edges">—</div>
+            <div class="budget-stat-sub">relationships</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <!-- File browser panel -->
+          <div style="width:220px;flex-shrink:0">
+            <div class="card-title" style="margin-bottom:8px">Memory Files</div>
+            <div id="memory-file-list">
+              <div style="color:#4b5563;font-size:12px">Loading...</div>
+            </div>
+            <div style="margin-top:12px">
+              <button class="btn btn-secondary btn-sm" style="width:100%" onclick="openMemoryFile('MEMORY.md')">Open MEMORY.md</button>
+              <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:6px" onclick="openMemoryFile('CLAUDE.md')">Open CLAUDE.md</button>
+            </div>
+          </div>
+          <!-- Editor panel -->
+          <div style="flex:1;min-width:300px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="card-title" style="margin:0" id="memory-editor-title">Select a file</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-primary btn-sm" onclick="saveMemoryFile()" id="memory-save-btn" style="display:none">Save</button>
+              </div>
+            </div>
+            <textarea class="memory-editor-ta" id="memory-editor-ta" placeholder="Select a memory file to view/edit..." style="width:100%;height:calc(100vh - 360px)"></textarea>
+          </div>
         </div>
       </div>
 
@@ -500,12 +708,20 @@ textarea.form-input{resize:vertical;min-height:80px}
 
       <!-- Config -->
       <div id="config-page" class="page">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
           <div class="config-toggle">
             <button class="active" id="cfg-form-btn" onclick="switchConfig('form')">Form</button>
             <button id="cfg-raw-btn" onclick="switchConfig('raw')">Raw JSON</button>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="saveConfig()">Save Changes</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="saveConfig()">Save Changes</button>
+            <button class="btn btn-primary btn-sm" onclick="saveAndRestartDaemon()">Apply &amp; Restart</button>
+          </div>
+        </div>
+        <div id="cfg-stale-warning" class="alert-banner" style="display:none">
+          <span>&#9888;</span>
+          <span>Config was modified elsewhere. Refresh before saving.</span>
+          <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="renderConfig()">Refresh</button>
         </div>
         <div id="cfg-form-view" class="card">
           <div id="cfg-fields"></div>
@@ -513,14 +729,66 @@ textarea.form-input{resize:vertical;min-height:80px}
         <div id="cfg-raw-view" class="card" style="display:none">
           <textarea class="form-input" id="cfg-raw-json" style="min-height:400px;font-family:'Cascadia Code','Consolas',monospace;font-size:13px"></textarea>
         </div>
+
+        <!-- Action Guard status (Chunk 8) -->
+        <div class="card" style="margin-top:16px">
+          <div class="card-title">Action Guard — 3-Rule Gate</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Pre-execution safety gate that enforces autonomy constraints before every tool call.</div>
+          <div id="action-guard-rules">
+            <div style="color:#4b5563;font-size:12px">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Reversibility tracking (Chunk 8) -->
+        <div class="card" style="margin-top:16px">
+          <div class="card-title">Recent Reversibility Decisions</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Audit entries tagged with reversibility decisions.</div>
+          <div id="reversibility-list">
+            <div style="color:#4b5563;font-size:12px">Loading...</div>
+          </div>
+        </div>
       </div>
 
       <!-- Budget -->
       <div id="budget-page" class="page">
+        <!-- Hard cap enforcement badge — Cato differentiator -->
+        <div class="hard-cap-badge">
+          <span class="hard-cap-badge-icon">&#128737;</span>
+          <div>
+            <div class="hard-cap-badge-title">Hard Budget Caps Enforced</div>
+            <div class="hard-cap-badge-text">Cato enforces hard spending caps in code — not just UI warnings. Session cap: $1.00 &middot; Monthly cap: $20.00. New requests are blocked when caps are hit.</div>
+          </div>
+        </div>
+
         <div id="budget-warning" class="alert-banner" style="display:none">
           <span>&#9888;</span>
           <span id="budget-warning-msg"></span>
         </div>
+
+        <!-- Live summary stats -->
+        <div class="budget-summary-grid" id="budget-summary-grid">
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">Today's Spend</div>
+            <div class="budget-stat-value" id="bstat-today">$0.00</div>
+            <div class="budget-stat-sub">session cost</div>
+          </div>
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">All-Time Spend</div>
+            <div class="budget-stat-value" id="bstat-alltime">$0.00</div>
+            <div class="budget-stat-sub">total cost ever</div>
+          </div>
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">Monthly Spend</div>
+            <div class="budget-stat-value" id="bstat-monthly">$0.00</div>
+            <div class="budget-stat-sub" id="bstat-monthly-sub">of $20.00 cap</div>
+          </div>
+          <div class="budget-stat-card">
+            <div class="budget-stat-label">Projected Monthly</div>
+            <div class="budget-stat-value" id="bstat-projected">$0.00</div>
+            <div class="budget-stat-sub">at current rate</div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-title">Budget Limits</div>
           <div class="budget-inputs">
@@ -531,6 +799,13 @@ textarea.form-input{resize:vertical;min-height:80px}
             <div class="form-group" style="margin:0">
               <label class="form-label">Per-Session Cap (USD)</label>
               <input class="form-input" type="number" id="budget-session" placeholder="1.00" step="0.01" min="0.01">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:12px">
+            <label class="form-label">Warning Threshold (%)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input class="form-input" type="number" id="budget-warn-pct" placeholder="80" min="1" max="99" style="width:100px">
+              <span style="font-size:12px;color:#64748b">% of monthly cap triggers warning</span>
             </div>
           </div>
           <button class="btn btn-primary btn-sm" onclick="saveBudget()">Save Budget</button>
@@ -549,10 +824,110 @@ textarea.form-input{resize:vertical;min-height:80px}
           </div>
         </div>
         <div class="card" style="padding:0;overflow:hidden">
+          <div class="card-title" style="padding:16px 20px 0">Per-Model Breakdown</div>
           <table class="table" id="budget-model-table">
             <thead><tr><th>Model</th><th>Input $/M</th><th>Output $/M</th><th>Used This Month</th></tr></thead>
             <tbody id="budget-model-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Conduit (CHUNK 6) -->
+      <div id="conduit-page" class="page">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Search Providers</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:16px">Conduit routes web searches to configured providers. Add API keys in Vault &amp; Auth to activate each provider.</div>
+          <div id="conduit-provider-list">
+            <div style="color:#4b5563;font-size:13px;text-align:center;padding:24px">Loading providers...</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Provider Settings</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:16px">Enable/disable providers. Disabled providers are skipped even if their API key is configured.</div>
+          <div id="conduit-toggle-list"></div>
+          <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="saveConduitSettings()">Save Settings</button>
+        </div>
+      </div>
+
+      <!-- Dashboard Home (CHUNK 3) -->
+      <div id="dashboard-page" class="page">
+        <div class="quick-launch-row">
+          <button class="btn btn-primary" onclick="navigate('chat')">&#43; New Chat</button>
+          <button class="btn btn-secondary" onclick="navigate('cron')">&#43; New Cron Job</button>
+          <button class="btn btn-secondary" onclick="navigate('skills')">&#43; Install Skill</button>
+          <span id="dash-refresh-ts" style="margin-left:auto;font-size:11px;color:#374151;align-self:center"></span>
+        </div>
+        <div class="dash-grid">
+          <div class="metric-card">
+            <div class="metric-label">Gateway</div>
+            <div class="metric-value" id="dash-gateway-status" style="font-size:16px"><span class="badge badge-gray">Unknown</span></div>
+            <div class="metric-sub" id="dash-uptime"></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Active Sessions</div>
+            <div class="metric-value" id="dash-sessions">—</div>
+            <div class="metric-sub">running lanes</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Messages Today</div>
+            <div class="metric-value" id="dash-calls-today">—</div>
+            <div class="metric-sub" id="dash-calls-sub">API calls</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Tokens Today</div>
+            <div class="metric-value" id="dash-tokens-today">—</div>
+            <div class="metric-sub">input + output</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Cost Today</div>
+            <div class="metric-value" id="dash-cost-today" style="font-size:20px;color:#22c55e">$0.00</div>
+            <div class="metric-sub" id="dash-cost-monthly">of $0.00 monthly cap</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Avg Latency</div>
+            <div class="metric-value" id="dash-latency">—</div>
+            <div class="metric-sub">ms per response</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Model Distribution</div>
+          <div id="dash-model-bars"><div style="color:#4b5563;font-size:13px">No data — connect daemon to see model usage.</div></div>
+        </div>
+      </div>
+
+      <!-- Vault (CHUNK 2) -->
+      <div id="vault-page" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <span style="color:#94a3b8;font-size:13px">Encrypted key storage</span>
+          <button class="btn btn-primary btn-sm" onclick="showAddVaultKeyModal()">+ Add Key</button>
+        </div>
+        <div class="card">
+          <div class="card-title">Vault Keys</div>
+          <div id="vault-key-list"><div style="color:#4b5563;font-size:13px;text-align:center;padding:24px">Loading vault keys...</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">CLI Auth Status</div>
+          <div id="cli-status-list"><div style="color:#4b5563;font-size:13px;text-align:center;padding:24px">Loading CLI status...</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">SwarmSync</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span class="swarmsync-dot" id="swarmsync-dot"></span>
+            <span id="swarmsync-status-label" style="font-size:13px;color:#64748b">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">SwarmSync API Key</label>
+            <div style="display:flex;gap:8px">
+              <input class="form-input" type="password" id="swarmsync-key-input" placeholder="ss-..." style="flex:1">
+              <button class="btn btn-primary btn-sm" onclick="saveSwarmSyncKey()">Save</button>
+              <button class="btn btn-secondary btn-sm" onclick="testSwarmSync()">Test</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">SwarmSync API URL</label>
+            <input class="form-input" id="swarmsync-url-input" placeholder="https://api.swarmsync.ai" value="https://api.swarmsync.ai">
+          </div>
+          <div id="swarmsync-test-result" style="margin-top:8px;font-size:12px;display:none"></div>
         </div>
       </div>
 
@@ -626,6 +1001,28 @@ textarea.form-input{resize:vertical;min-height:80px}
   </div>
 </div>
 
+<!-- ── Add Vault Key Modal (CHUNK 2) ─────────────────────────────── -->
+<div id="vault-add-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add Vault Key</span>
+      <button class="modal-close" onclick="closeVaultAddModal()">&#10005;</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Key Name (e.g. ANTHROPIC_API_KEY)</label>
+      <input class="form-input" id="vault-add-name" placeholder="MY_API_KEY">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Value</label>
+      <input class="form-input" type="password" id="vault-add-value" placeholder="sk-...">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeVaultAddModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveVaultKey()">Save Key</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ================================================================
    CATO DASHBOARD — vanilla JS SPA
@@ -657,6 +1054,32 @@ const state = {
   ],
   usageData: {},
   onboardingDone: false,
+  // CHUNK 1: streaming state
+  streaming: false,       // true while assistant response is streaming
+  streamingSession: null, // session_id being streamed
+  streamingMsgId: null,   // DOM id of bubble being streamed into
+  // CHUNK 2: SwarmSync
+  swarmSyncEnabled: false,
+  // CHUNK 4: skill editor
+  editingSkillName: null,
+  // CHUNK 5: cron enhancements
+  cronJobsFromServer: [],
+  // CHUNK 6: conduit
+  conduitProviders: {
+    brave: { name: 'Brave Search', icon: '&#129419;', vaultKey: 'brave_api_key' },
+    exa:   { name: 'Exa',          icon: '&#128269;', vaultKey: 'exa_api_key' },
+    tavily:{ name: 'Tavily',       icon: '&#127760;', vaultKey: 'tavily_api_key' },
+    perplexity:{ name: 'Perplexity', icon: '&#9733;', vaultKey: 'perplexity_api_key' },
+    semantic_scholar:{ name: 'Semantic Scholar', icon: '&#128218;', vaultKey: 'semantic_scholar_api_key' },
+  },
+  conduitEnabled: {},   // provider_id -> bool
+  // CHUNK 7: audit + memory
+  auditEntries: [],
+  auditSessionFilter: '',
+  auditActionFilter: '',
+  memoryFile: null,
+  // CHUNK 8: config hash guard
+  configHash: '',
 };
 
 // ── WebSocket ─────────────────────────────────────────────────────
@@ -702,13 +1125,35 @@ function handleWsMessage(data) {
       setHealth(true, data);
       break;
     case 'response':
+      // Final complete response — stop streaming if active, render full
+      stopStreaming(data.session_id);
       hideTyping(data.session_id);
-      addMessage(data.session_id, 'assistant', data.text, data.cost_footer);
+      addMessage(data.session_id, 'assistant', data.text, data.cost_footer, data.usage, data.routed_to);
+      break;
+    case 'chunk':
+      // CHUNK 1: incremental streaming token
+      handleStreamChunk(data);
+      break;
+    case 'stream_start':
+      // CHUNK 1: streaming begins for a session
+      startStreaming(data.session_id || state.currentSession);
+      break;
+    case 'stream_end':
+      // CHUNK 1: streaming ended
+      stopStreaming(data.session_id);
+      break;
+    case 'tool_call':
+      // CHUNK 6: check if Conduit search call first
+      if (!handleWsMessageConduit(data)) {
+        // CHUNK 1: tool invocation card
+        appendToolCallCard(data);
+      }
       break;
     case 'log':
       appendLog(data.level || 'INFO', data.text || data.message || '');
       break;
     case 'error':
+      stopStreaming(data.session_id || state.streamingSession);
       appendAlert('error', data.text || data.message || 'Unknown error');
       break;
     case 'sessions_update':
@@ -747,12 +1192,14 @@ function setHealth(online, data) {
     dot.classList.remove('online'); lbl.textContent = 'Offline';
     pill.classList.remove('online');
   }
+  updateChatReadonlyState();
 }
 
 // ── Navigation ────────────────────────────────────────────────────
 const PAGE_TITLES = {
-  chat:'Chat', agents:'Agents', skills:'Skills', cron:'Cron', sessions:'Sessions',
-  usage:'Usage', logs:'Logs', alerts:'Alerts', config:'Config', budget:'Budget',
+  dashboard:'Dashboard', chat:'Chat', agents:'Agents', skills:'Skills', cron:'Cron', sessions:'Sessions',
+  usage:'Usage', audit:'Audit Log', memory:'Memory Browser', logs:'Logs', alerts:'Alerts',
+  config:'Config', budget:'Budget', conduit:'Conduit — Search Providers', vault:'Vault & Auth',
 };
 
 function navigate(page) {
@@ -774,16 +1221,21 @@ function navigate(page) {
 }
 
 function onPageEnter(page) {
-  if (page === 'chat')     renderSessions();
+  if (page === 'dashboard') renderDashboard();
+  if (page === 'chat')     { renderSessions(); updateChatReadonlyState(); }
   if (page === 'agents')   renderAgents();
   if (page === 'skills')   renderSkills();
   if (page === 'cron')     renderCron();
   if (page === 'sessions') renderSessionsPage();
   if (page === 'usage')    renderUsage();
+  if (page === 'audit')    { loadAuditEntries(); }
+  if (page === 'memory')   { loadMemoryStats(); loadMemoryFiles(); }
   if (page === 'logs')     filterLogs();
-  if (page === 'config')   renderConfig();
+  if (page === 'config')   { renderConfig(); loadActionGuardStatus(); loadReversibilityEntries(); }
   if (page === 'budget')   renderBudget();
+  if (page === 'conduit')  renderConduitPage();
   if (page === 'alerts')   renderAlerts();
+  if (page === 'vault')    renderVaultPage();
 }
 
 function toggleGroup(name) {
@@ -859,20 +1311,29 @@ function renderMessages(sessionId) {
   }
   wrap.innerHTML = s.messages.map(m => {
     const isUser = m.role === 'user';
+    let extra = '';
+    if (!isUser) {
+      if (m.routedTo) extra += `<div class="routed-to">Routed to: ${esc(m.routedTo)}</div>`;
+      if (m.usage) {
+        const u = m.usage;
+        extra += `<div class="token-usage-line"><span>In: ${u.input_tokens||u.prompt_tokens||0}</span><span>Out: ${u.output_tokens||u.completion_tokens||0}</span>${u.total_tokens ? '<span>Total: '+u.total_tokens+'</span>' : ''}</div>`;
+      }
+    }
     return `<div class="msg-row${isUser ? ' user' : ''}">
       <div class="msg-avatar ${isUser ? 'user-av' : 'bot-av'}">${isUser ? 'U' : 'AI'}</div>
       <div class="msg-bubble">
         <div class="msg-text">${esc(m.text)}</div>
         ${m.footer ? `<div class="msg-footer">${esc(m.footer)}</div>` : ''}
+        ${extra}
       </div>
     </div>`;
   }).join('') + '<div id="typing-indicator" style="display:none" class="msg-row"><div class="msg-avatar bot-av">AI</div><div class="msg-bubble"><div class="typing-dots"><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span></div></div></div>';
   wrap.scrollTop = wrap.scrollHeight;
 }
 
-function addMessage(sessionId, role, text, footer) {
+function addMessage(sessionId, role, text, footer, usage, routedTo) {
   if (!state.sessions[sessionId]) state.sessions[sessionId] = { messages: [], lastActivity: Date.now() };
-  state.sessions[sessionId].messages.push({ role, text, footer });
+  state.sessions[sessionId].messages.push({ role, text, footer, usage: usage || null, routedTo: routedTo || null });
   state.sessions[sessionId].lastActivity = Date.now();
   if (state.currentSession === sessionId) renderMessages(sessionId);
   renderSessions();
@@ -889,16 +1350,177 @@ function hideTyping(sessionId) {
   if (el) el.style.display = 'none';
 }
 
-function sendMessage() {
+async function sendMessage() {
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
   if (!text) return;
   if (!state.currentSession) newSession();
+
+  // CHUNK 1: Slash commands
+  if (text === '/new') {
+    inp.value = ''; inp.style.height = '40px';
+    newSession();
+    return;
+  }
+  if (text === '/compact') {
+    inp.value = ''; inp.style.height = '40px';
+    addMessage(state.currentSession, 'user', '/compact', '');
+    try {
+      const r = await fetch('/api/compact', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: state.currentSession }) });
+      const msg = r.ok ? 'Context compacted.' : 'Compact failed: ' + r.status;
+      addMessage(state.currentSession, 'assistant', msg, '');
+    } catch (_) {
+      // Fallback: send via WS
+      const sent = wsSend({ type: 'compact', session_id: state.currentSession });
+      if (!sent) addMessage(state.currentSession, 'assistant', '[Daemon offline]', '');
+    }
+    return;
+  }
+  if (text === '/status') {
+    inp.value = ''; inp.style.height = '40px';
+    addMessage(state.currentSession, 'user', '/status', '');
+    try {
+      const r = await fetch('/api/usage/summary');
+      if (r.ok) {
+        const d = await r.json();
+        const total = d.total_calls || 0;
+        const tokens = (d.total_input_tokens || 0) + (d.total_output_tokens || 0);
+        const model = d.top_model || state.config.model || 'unknown';
+        addMessage(state.currentSession, 'assistant',
+          `Status:\nModel: ${model}\nTotal calls: ${total}\nTotal tokens: ${tokens.toLocaleString()}`, '');
+      } else {
+        addMessage(state.currentSession, 'assistant', 'Could not fetch usage summary.', '');
+      }
+    } catch (_) {
+      addMessage(state.currentSession, 'assistant', '[Daemon offline — cannot fetch status]', '');
+    }
+    return;
+  }
+
   addMessage(state.currentSession, 'user', text, '');
   inp.value = ''; inp.style.height = '40px';
+
+  // CHUNK 1: read-only check
+  if (!state.wsReady) {
+    addMessage(state.currentSession, 'assistant', '[Not connected to daemon — WebSocket offline]', '');
+    return;
+  }
+
   const sent = wsSend({ type: 'message', session_id: state.currentSession, text, channel: 'web' });
   if (!sent) addMessage(state.currentSession, 'assistant', '[Not connected to daemon — WebSocket offline]', '');
   else showTyping(state.currentSession);
+}
+
+// CHUNK 1: update read-only banner + input disabled state
+function updateChatReadonlyState() {
+  const banner = document.getElementById('chat-readonly-banner');
+  const inp = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('send-btn');
+  if (!banner || !inp) return;
+  const connected = state.wsReady;
+  banner.style.display = connected ? 'none' : 'block';
+  inp.disabled = !connected;
+  if (sendBtn) sendBtn.disabled = !connected;
+}
+
+// CHUNK 1: streaming support
+function startStreaming(sessionId) {
+  state.streaming = true;
+  state.streamingSession = sessionId;
+  hideTyping(sessionId);
+  // Create a new empty assistant bubble in the message area
+  const wrap = document.getElementById('chat-messages');
+  if (!wrap) return;
+  const id = 'stream-bubble-' + Date.now();
+  state.streamingMsgId = id;
+  const row = document.createElement('div');
+  row.className = 'msg-row';
+  row.innerHTML = `<div class="msg-avatar bot-av">AI</div>
+    <div class="msg-bubble msg-streaming" id="${id}">
+      <div class="msg-text" id="${id}-text"></div>
+    </div>`;
+  // Remove typing indicator if present, then append
+  const typing = document.getElementById('typing-indicator');
+  if (typing) typing.style.display = 'none';
+  wrap.appendChild(row);
+  wrap.scrollTop = wrap.scrollHeight;
+  // Show abort button
+  const abortBtn = document.getElementById('abort-btn');
+  if (abortBtn) abortBtn.style.display = '';
+}
+
+function handleStreamChunk(data) {
+  const chunk = data.text || data.chunk || '';
+  const sessionId = data.session_id;
+  if (!state.streaming || !state.streamingMsgId) {
+    // Auto-start streaming if not started
+    startStreaming(sessionId || state.currentSession);
+  }
+  const textEl = document.getElementById(state.streamingMsgId + '-text');
+  if (textEl) {
+    textEl.textContent += chunk;
+    // scroll to bottom
+    const wrap = document.getElementById('chat-messages');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+function stopStreaming(sessionId) {
+  if (!state.streaming) return;
+  state.streaming = false;
+  // Remove streaming class from bubble
+  const bubble = document.getElementById(state.streamingMsgId);
+  if (bubble) bubble.classList.remove('msg-streaming');
+  state.streamingMsgId = null;
+  state.streamingSession = null;
+  // Hide abort button
+  const abortBtn = document.getElementById('abort-btn');
+  if (abortBtn) abortBtn.style.display = 'none';
+}
+
+function abortStreaming() {
+  if (state.currentSession) {
+    wsSend({ type: 'abort', session_id: state.currentSession });
+  }
+  stopStreaming(state.currentSession);
+  addMessage(state.currentSession || 'web:default', 'assistant', '[Generation stopped by user]', '');
+}
+
+// CHUNK 1: tool call expandable card
+function appendToolCallCard(data) {
+  if (state.currentSession !== (data.session_id || state.currentSession)) return;
+  const wrap = document.getElementById('chat-messages');
+  if (!wrap) return;
+  const cardId = 'tc-' + Date.now();
+  const tool = esc(data.tool_name || data.name || 'unknown_tool');
+  const inputs = JSON.stringify(data.inputs || data.tool_input || {}, null, 2);
+  const card = document.createElement('div');
+  card.className = 'msg-row';
+  card.innerHTML = `<div class="msg-avatar bot-av" style="font-size:10px">TL</div>
+    <div style="flex:1;max-width:72%">
+      <div class="tool-card">
+        <div class="tool-card-header" onclick="toggleToolCard('${cardId}')">
+          <span style="font-size:11px;color:#4b5563">Tool call</span>
+          <span class="tool-card-name">${tool}</span>
+          <span class="tool-card-arrow" id="arr-${cardId}">&#9660;</span>
+        </div>
+        <div class="tool-card-body" id="${cardId}">
+<pre style="margin:0;font-size:11px;color:#94a3b8">${esc(inputs)}</pre>
+        </div>
+      </div>
+    </div>`;
+  wrap.appendChild(card);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function toggleToolCard(id) {
+  const body = document.getElementById(id);
+  const arr  = document.getElementById('arr-' + id);
+  if (!body) return;
+  const open = body.classList.toggle('open');
+  if (arr) arr.style.transform = open ? 'rotate(180deg)' : '';
 }
 
 // ── Agents ────────────────────────────────────────────────────────
@@ -1051,24 +1673,105 @@ function toggleCronForm() {
   f.classList.toggle('open');
 }
 
-function renderCron() {
+// CHUNK 5: Human-readable cron expression preview
+function updateCronHint(expr) {
+  const hint = document.getElementById('cron-expr-hint');
+  if (!hint) return;
+  hint.textContent = parseCronExpression(expr);
+}
+
+function parseCronExpression(expr) {
+  if (!expr || !expr.trim()) return '';
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return 'Enter 5-part cron expression';
+  const [min, hour, dom, mon, dow] = parts;
+
+  const MONTHS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DAYS    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  function fmtTime(h, m) {
+    if (h === '*' && m === '*') return 'every minute';
+    const hh = h === '*' ? 0 : parseInt(h, 10);
+    const mm = m === '*' ? 0 : parseInt(m, 10);
+    if (isNaN(hh) || isNaN(mm)) return `${h}:${m}`;
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    return `${(hh % 12) || 12}:${String(mm).padStart(2,'0')} ${ampm}`;
+  }
+
+  function fmtDow(d) {
+    if (d === '*') return 'every day';
+    return d.split(',').map(p => {
+      if (p.includes('-')) {
+        const [a,b] = p.split('-');
+        return `${DAYS[+a]||a}-${DAYS[+b]||b}`;
+      }
+      return DAYS[+p] || p;
+    }).join(', ');
+  }
+
+  // Common patterns
+  if (expr.trim() === '* * * * *')         return 'Every minute';
+  if (expr.trim() === '0 * * * *')         return 'Every hour';
+  if (expr.trim() === '0 0 * * *')         return 'Daily at midnight';
+  if (expr.trim() === '0 9 * * 1-5')       return 'Weekdays at 9:00 AM';
+  if (expr.trim() === '0 9 * * 1,2,3,4,5') return 'Weekdays at 9:00 AM';
+  if (expr.trim() === '0 0 * * 0')         return 'Every Sunday at midnight';
+  if (expr.trim() === '0 0 1 * *')         return 'First of every month at midnight';
+
+  // Generic description
+  let desc = 'At ' + fmtTime(hour, min);
+  if (dow !== '*') desc += ', ' + fmtDow(dow);
+  else if (dom !== '*') desc += ', on day ' + dom + ' of month';
+  if (mon !== '*') desc += ', in ' + mon.split(',').map(m => MONTHS[(+m)-1]||m).join('/');
+  return desc;
+}
+
+async function renderCron() {
+  // Fetch from API first
+  try {
+    const r = await fetch('/api/cron/jobs');
+    if (r.ok) {
+      const jobs = await r.json();
+      state.cronJobsFromServer = jobs;
+      state.cronJobs = jobs.map(j => ({
+        id: j.name, name: j.name, schedule: j.cron || j.schedule || '',
+        agent: j.agent || 'default', prompt: j.skill || j.prompt || '',
+        enabled: j.enabled !== false, lastRun: j.last_run || null, nextRun: j.next_run || null,
+        deleteAfterRun: j.delete_after_run || false,
+      }));
+    }
+  } catch (_) {}
+
   const tbody = document.getElementById('cron-tbody');
   if (!state.cronJobs.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#4b5563">No cron jobs configured.</td></tr>';
     return;
   }
   tbody.innerHTML = state.cronJobs.map((c, i) => {
-    const lastRun = c.lastRun ? new Date(c.lastRun).toLocaleString() : 'Never';
-    const nextRun = c.nextRun ? new Date(c.nextRun).toLocaleString() : 'Unknown';
+    const lastRun = c.lastRun ? new Date(c.lastRun * 1000 || c.lastRun).toLocaleString() : 'Never';
+    const hint = parseCronExpression(c.schedule);
+    const enabled = c.enabled !== false;
     return `<tr>
-      <td><span class="cron-schedule-tag">${esc(c.schedule)}</span></td>
-      <td style="color:#93c5fd">${esc(c.agent || 'default')}</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b">${esc(c.prompt)}</td>
-      <td style="font-size:12px;color:#4b5563">${lastRun}</td>
-      <td style="font-size:12px;color:#4b5563">${nextRun}</td>
       <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-secondary btn-sm" onclick="runCronNow(${i})">Run Now</button>
+        <label class="skill-toggle" title="${enabled ? 'Disable' : 'Enable'}">
+          <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleCronJob('${esc(c.name||c.id)}',this.checked)">
+          <div class="skill-toggle-track"></div>
+          <div class="skill-toggle-thumb"></div>
+        </label>
+      </td>
+      <td>
+        <div class="cron-row-meta">
+          <span class="cron-schedule-tag">${esc(c.schedule)}</span>
+          <span style="font-size:10px;color:#64748b;font-style:italic">${esc(hint)}</span>
+        </div>
+      </td>
+      <td style="color:#93c5fd">${esc(c.agent || 'default')}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b">${esc(c.prompt)}</td>
+      <td style="font-size:12px;color:#4b5563">${lastRun}</td>
+      <td>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="runCronNow(${i})">&#9654; Run</button>
+          <button class="btn btn-ghost btn-sm" onclick="showCronHistory('${esc(c.name||c.id)}')">History</button>
           <button class="btn btn-danger btn-sm" onclick="deleteCron(${i})">&#128465;</button>
         </div>
       </td>
@@ -1076,60 +1779,191 @@ function renderCron() {
   }).join('');
 }
 
-function saveCron() {
+async function toggleCronJob(name, enabled) {
+  try {
+    await fetch('/api/cron/jobs/' + encodeURIComponent(name) + '/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    appendAlert('info', (enabled ? 'Enabled' : 'Disabled') + ' cron job: ' + name);
+  } catch (_) {
+    appendAlert('error', 'Failed to toggle cron job');
+  }
+}
+
+async function showCronHistory(name) {
+  const panel = document.getElementById('cron-history-panel');
+  const nameEl = document.getElementById('cron-history-job-name');
+  const listEl = document.getElementById('cron-history-list');
+  if (!panel) return;
+  panel.style.display = 'block';
+  if (nameEl) nameEl.textContent = name;
+  listEl.innerHTML = '<span style="color:#4b5563;font-size:12px">Loading...</span>';
+  try {
+    const r = await fetch('/api/cron/jobs/' + encodeURIComponent(name) + '/history?limit=20');
+    if (r.ok) {
+      const entries = await r.json();
+      if (!entries.length) {
+        listEl.innerHTML = '<span style="color:#4b5563;font-size:12px">No run history found in audit log.</span>';
+        return;
+      }
+      listEl.innerHTML = entries.map(e => {
+        const ts = e.timestamp ? new Date(e.timestamp * 1000 || e.timestamp).toLocaleString() : '?';
+        const err = e.error ? ` <span style="color:#f87171">${esc(e.error)}</span>` : ' <span style="color:#22c55e">OK</span>';
+        return `<div class="cron-history-row">${ts} — ${esc(e.action_type||'run')}${err}</div>`;
+      }).join('');
+    } else {
+      listEl.innerHTML = '<span style="color:#4b5563;font-size:12px">No history available.</span>';
+    }
+  } catch (e) {
+    listEl.innerHTML = '<span style="color:#ef4444;font-size:12px">Failed to load history.</span>';
+  }
+}
+
+function closeCronHistory() {
+  const panel = document.getElementById('cron-history-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+async function saveCron() {
   const sched  = document.getElementById('cron-schedule').value.trim();
   const agent  = document.getElementById('cron-agent').value.trim() || 'default';
   const prompt = document.getElementById('cron-prompt').value.trim();
+  const delAfterRun = document.getElementById('cron-delete-after-run')?.checked || false;
   if (!sched || !prompt) { alert('Schedule and prompt are required.'); return; }
-  const job = { id: 'cron-' + Date.now(), schedule: sched, agent, prompt, lastRun: null, nextRun: Date.now() + 60000 };
-  state.cronJobs.push(job);
-  wsSend({ type: 'cron_add', job });
+
+  const body = { name: 'cron-' + Date.now(), cron: sched, agent, skill: prompt, delete_after_run: delAfterRun };
+  try {
+    const r = await fetch('/api/cron/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      appendAlert('info', 'Cron job saved.');
+    } else {
+      appendAlert('error', 'Failed to save cron job: ' + r.status);
+    }
+  } catch (_) {
+    // fallback: WS
+    wsSend({ type: 'cron_add', job: body });
+  }
   toggleCronForm();
   ['cron-schedule','cron-agent','cron-prompt'].forEach(id => document.getElementById(id).value = '');
+  if (document.getElementById('cron-delete-after-run'))
+    document.getElementById('cron-delete-after-run').checked = false;
   renderCron();
 }
 
-function runCronNow(idx) {
+async function runCronNow(idx) {
   const job = state.cronJobs[idx];
-  wsSend({ type: 'cron_run', cron_id: job.id });
-  appendAlert('info', 'Cron job triggered: ' + job.schedule);
+  const name = job.name || job.id;
+  try {
+    const r = await fetch('/api/cron/jobs/' + encodeURIComponent(name) + '/run', { method: 'POST' });
+    if (r.ok) {
+      appendAlert('info', 'Cron job triggered: ' + name);
+    } else {
+      appendAlert('error', 'Failed to trigger cron job: ' + r.status);
+    }
+  } catch (_) {
+    wsSend({ type: 'cron_run', cron_id: name });
+    appendAlert('info', 'Cron job triggered: ' + name);
+  }
   job.lastRun = Date.now();
   renderCron();
 }
 
-function deleteCron(idx) {
+async function deleteCron(idx) {
   if (!confirm('Delete this cron job?')) return;
-  const job = state.cronJobs.splice(idx, 1)[0];
-  wsSend({ type: 'cron_delete', cron_id: job.id });
+  const job = state.cronJobs[idx];
+  const name = job.name || job.id;
+  try {
+    await fetch('/api/cron/jobs/' + encodeURIComponent(name), { method: 'DELETE' });
+    appendAlert('info', 'Cron job deleted: ' + name);
+  } catch (_) {
+    wsSend({ type: 'cron_delete', cron_id: name });
+  }
+  state.cronJobs.splice(idx, 1);
   renderCron();
 }
 
 // ── Sessions page (overview) ──────────────────────────────────────
-function renderSessionsPage() {
+async function renderSessionsPage() {
+  await refreshSessionsPage();
+}
+
+async function refreshSessionsPage() {
   const tbody = document.getElementById('sessions-tbody');
-  const ids = Object.keys(state.sessions);
+  if (!tbody) return;
+
+  // Fetch live sessions from API
+  let serverSessions = [];
+  try {
+    const r = await fetch('/api/sessions');
+    if (r.ok) serverSessions = await r.json();
+  } catch (_) {}
+
+  // Merge server sessions into state
+  serverSessions.forEach(s => {
+    const sid = s.session_id || s.id;
+    if (!state.sessions[sid]) state.sessions[sid] = { messages: [], lastActivity: Date.now() };
+  });
+
+  // Build combined list
+  const serverMap = {};
+  serverSessions.forEach(s => { serverMap[s.session_id || s.id] = s; });
+  const ids = [...new Set([...serverSessions.map(s => s.session_id || s.id), ...Object.keys(state.sessions)])];
+
   if (!ids.length) {
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#4b5563">No active sessions.</td></tr>';
     return;
   }
   tbody.innerHTML = ids.map(id => {
-    const s = state.sessions[id];
+    const s = state.sessions[id] || {};
+    const ss = serverMap[id] || {};
     const ts = s.lastActivity ? new Date(s.lastActivity).toLocaleString() : '—';
-    const ch = id.includes('tg') ? 'Telegram' : id.includes('wa') ? 'WhatsApp' : 'Web';
+    const ch = id.includes('tg') ? 'Telegram' : id.includes('wa') ? 'WhatsApp' : id.includes('cron') ? 'Cron' : 'Web';
+    const qd = ss.queue_depth != null ? ss.queue_depth : (s.messages ? s.messages.length : 0);
+    const running = ss.running ? '<span class="badge badge-green">Running</span>' : '<span class="badge badge-gray">Idle</span>';
     return `<tr>
       <td style="color:#e2e8f0;font-weight:500;font-family:'Consolas',monospace;font-size:12px">${esc(id)}</td>
       <td><span class="badge badge-blue">${ch}</span></td>
-      <td>0</td>
-      <td style="font-size:12px;color:#64748b">${ts}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="killSession('${esc(id)}',event)">Kill</button></td>
+      <td>${qd}</td>
+      <td>${running}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm" onclick="downloadTranscript('${esc(id)}')">&#8595; Transcript</button>
+          <button class="btn btn-danger btn-sm" onclick="killSessionFromPage('${esc(id)}')">Kill</button>
+        </div>
+      </td>
     </tr>`;
   }).join('');
 }
 
+async function killSessionFromPage(id) {
+  if (!confirm('Kill session ' + id + '?')) return;
+  try {
+    await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+  } catch (_) {
+    wsSend({ type: 'kill_session', session_id: id });
+  }
+  delete state.sessions[id];
+  if (state.currentSession === id) state.currentSession = null;
+  renderSessionsPage();
+}
+
+function downloadTranscript(sessionId) {
+  const url = '/api/audit/download?session_id=' + encodeURIComponent(sessionId);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'audit-' + sessionId + '.jsonl';
+  a.click();
+}
+
 function updateSessionsFromServer(sessions) {
   sessions.forEach(s => {
-    if (!state.sessions[s.id]) state.sessions[s.id] = { messages: [], lastActivity: s.lastActivity };
-    else state.sessions[s.id].lastActivity = s.lastActivity;
+    const sid = s.id || s.session_id;
+    if (!state.sessions[sid]) state.sessions[sid] = { messages: [], lastActivity: s.lastActivity };
+    else state.sessions[sid].lastActivity = s.lastActivity;
   });
   if (state.currentPage === 'chat') renderSessions();
   if (state.currentPage === 'sessions') renderSessionsPage();
@@ -1202,26 +2036,7 @@ function clearLogs() {
 function subscribeToLogs() { wsSend({ type: 'subscribe_logs' }); }
 
 // ── Config ────────────────────────────────────────────────────────
-function renderConfig() {
-  const fields = document.getElementById('cfg-fields');
-  const raw    = document.getElementById('cfg-raw-json');
-  const cfg    = state.config;
-  const keys   = Object.keys(cfg);
-  if (!keys.length) {
-    fields.innerHTML = '<div style="color:#4b5563;font-size:13px">Config not loaded. Daemon may be offline.</div>';
-    raw.value = '{}';
-    return;
-  }
-  fields.innerHTML = keys.map(k => {
-    const v = cfg[k];
-    const inputType = typeof v === 'number' ? 'number' : 'text';
-    return `<div class="form-group">
-      <label class="form-label">${esc(k)}</label>
-      <input class="form-input" type="${inputType}" id="cfg-field-${esc(k)}" value="${esc(String(v))}">
-    </div>`;
-  }).join('');
-  raw.value = JSON.stringify(cfg, null, 2);
-}
+// (renderConfig and saveConfig defined later in CHUNK 8 section)
 
 function switchConfig(mode) {
   const formView = document.getElementById('cfg-form-view');
@@ -1237,49 +2052,61 @@ function switchConfig(mode) {
   }
 }
 
-async function saveConfig() {
-  const rawEl  = document.getElementById('cfg-raw-json');
-  const isRaw  = document.getElementById('cfg-raw-view').style.display !== 'none';
-  let payload;
-  if (isRaw) {
-    try { payload = JSON.parse(rawEl.value); }
-    catch { alert('Invalid JSON'); return; }
-  } else {
-    payload = { ...state.config };
-    Object.keys(state.config).forEach(k => {
-      const el = document.getElementById('cfg-field-' + k);
-      if (el) payload[k] = el.type === 'number' ? Number(el.value) : el.value;
-    });
-  }
-  try {
-    const r = await fetch('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (r.ok) { state.config = payload; appendAlert('info', 'Config saved.'); }
-    else appendAlert('error', 'Config save failed: ' + r.status);
-  } catch (_) { appendAlert('error', 'Config save failed — daemon offline.'); }
-}
-
 // ── Budget ────────────────────────────────────────────────────────
-function renderBudget() {
+async function renderBudget() {
+  // Fetch real budget data
+  let bd = {};
+  try {
+    const r = await fetch('/api/budget/summary');
+    if (r.ok) bd = await r.json();
+  } catch (_) {}
+
+  // Merge fetched data into state
+  if (bd.monthly_cap)   state.budget.monthly = bd.monthly_cap;
+  if (bd.session_cap)   state.budget.session = bd.session_cap;
+  if (bd.monthly_spend != null) state.budget.spent = bd.monthly_spend;
+
   document.getElementById('budget-monthly').value = state.budget.monthly;
   document.getElementById('budget-session').value  = state.budget.session;
+  const warnPctEl = document.getElementById('budget-warn-pct');
+  if (warnPctEl && !warnPctEl.value) warnPctEl.value = bd.budget_warn_pct || 80;
+
   const spent  = state.budget.spent || 0;
   const cap    = state.budget.monthly || 25;
   const pct    = Math.min(Math.round(spent / cap * 100), 100);
-  document.getElementById('budget-spent-label').textContent = '$' + spent.toFixed(2) + ' spent';
+  document.getElementById('budget-spent-label').textContent = '$' + spent.toFixed(4) + ' spent';
   document.getElementById('budget-cap-label').textContent   = 'of $' + cap.toFixed(2);
   document.getElementById('budget-pct-label').textContent   = pct + '%';
   const gauge = document.getElementById('budget-gauge');
   gauge.style.width = pct + '%';
   gauge.className = 'progress-bar-fill' + (pct >= 90 ? ' danger' : pct >= 80 ? ' warn' : '');
+
+  const warnThreshold = parseInt(warnPctEl?.value || '80', 10);
   const warn = document.getElementById('budget-warning');
   const warnMsg = document.getElementById('budget-warning-msg');
-  if (pct >= 80) {
+  if (pct >= warnThreshold) {
     warn.style.display = 'flex';
-    warnMsg.textContent = `Warning: ${pct}% of monthly budget used ($${spent.toFixed(2)} of $${cap.toFixed(2)}). ` +
+    warnMsg.textContent = `Warning: ${pct}% of monthly budget used ($${spent.toFixed(4)} of $${cap.toFixed(2)}). ` +
       (pct >= 100 ? 'Budget cap reached — new requests will be blocked.' : 'Approaching limit.');
   } else {
     warn.style.display = 'none';
   }
+
+  // Budget summary stat cards
+  const sessionSpend = bd.session_spend != null ? bd.session_spend : 0;
+  const allTime      = bd.total_spend_all_time != null ? bd.total_spend_all_time : spent;
+  const monthlyCalls = bd.monthly_calls || 0;
+  const daysElapsed  = new Date().getDate();
+  const daysInMonth  = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const projected    = daysElapsed > 0 ? (spent / daysElapsed) * daysInMonth : 0;
+
+  const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setEl('bstat-today',     '$' + sessionSpend.toFixed(4));
+  setEl('bstat-alltime',   '$' + allTime.toFixed(4));
+  setEl('bstat-monthly',   '$' + spent.toFixed(4));
+  setEl('bstat-monthly-sub', 'of $' + (bd.monthly_cap || 20).toFixed(2) + ' cap · ' + monthlyCalls + ' calls');
+  setEl('bstat-projected', '$' + projected.toFixed(4));
+
   const tbody = document.getElementById('budget-model-tbody');
   tbody.innerHTML = state.modelPricing.map(m => `<tr>
     <td style="color:#e2e8f0">${esc(m.model)}</td>
@@ -1289,11 +2116,26 @@ function renderBudget() {
   </tr>`).join('');
 }
 
-function saveBudget() {
+async function saveBudget() {
   state.budget.monthly = parseFloat(document.getElementById('budget-monthly').value) || 25;
   state.budget.session = parseFloat(document.getElementById('budget-session').value) || 1;
+  const warnPct = parseInt(document.getElementById('budget-warn-pct')?.value || '80', 10);
+
+  // Save via PATCH /api/config
+  try {
+    await fetch('/api/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        monthly_budget_usd: state.budget.monthly,
+        session_budget_usd: state.budget.session,
+        budget_warn_pct: warnPct,
+      }),
+    });
+  } catch (_) {}
+
   wsSend({ type: 'set_budget', monthly: state.budget.monthly, session: state.budget.session });
-  appendAlert('info', `Budget updated: monthly=$${state.budget.monthly}, session=$${state.budget.session}`);
+  appendAlert('info', `Budget updated: monthly=$${state.budget.monthly}, session=$${state.budget.session}, warn=${warnPct}%`);
   renderBudget();
 }
 
@@ -1346,6 +2188,894 @@ function dismissAlert(id) {
 }
 
 function clearAlerts() { state.alerts = []; renderAlerts(); }
+
+// ── CHUNK 2: Vault + CLI Auth + SwarmSync ────────────────────────
+
+async function renderVaultPage() {
+  await loadVaultKeys();
+  await loadCliStatus();
+  loadSwarmSyncStatus();
+}
+
+async function loadVaultKeys() {
+  const listEl = document.getElementById('vault-key-list');
+  if (!listEl) return;
+  try {
+    const r = await fetch('/api/vault/keys');
+    if (!r.ok) throw new Error(r.status);
+    const keys = await r.json();
+    if (!keys.length) {
+      listEl.innerHTML = '<div style="color:#4b5563;font-size:13px;text-align:center;padding:16px">No vault keys stored yet.</div>';
+      return;
+    }
+    const KNOWN = {
+      ANTHROPIC_API_KEY: 'Anthropic / Claude',
+      OPENAI_API_KEY: 'OpenAI / Codex',
+      OPENROUTER_API_KEY: 'OpenRouter',
+      SWARMSYNC_API_KEY: 'SwarmSync routing',
+      GOOGLE_API_KEY: 'Google Gemini',
+      TELEGRAM_BOT_TOKEN: 'Telegram bot',
+    };
+    listEl.innerHTML = keys.map(k => `
+      <div class="vault-key-row">
+        <span class="vault-key-name">${esc(k)}</span>
+        <span class="vault-key-set">${esc(KNOWN[k] || '')}</span>
+        <span class="badge badge-green" style="margin-left:auto">Set</span>
+        <button class="btn btn-danger btn-sm" onclick="deleteVaultKey('${esc(k)}')">&#128465;</button>
+      </div>`).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div style="color:#ef4444;font-size:12px;padding:8px">Failed to load vault keys — daemon may be offline.</div>';
+  }
+}
+
+async function loadCliStatus() {
+  const listEl = document.getElementById('cli-status-list');
+  if (!listEl) return;
+  const CLIS = [
+    { id: 'claude',  name: 'Claude CLI',  icon: '&#129302;', desc: 'Anthropic claude CLI' },
+    { id: 'codex',   name: 'Codex CLI',   icon: '&#128187;', desc: 'OpenAI codex CLI' },
+    { id: 'gemini',  name: 'Gemini CLI',  icon: '&#127754;', desc: 'Google gemini CLI' },
+    { id: 'cursor',  name: 'Cursor',      icon: '&#9999;',  desc: 'Cursor IDE CLI' },
+  ];
+  try {
+    const r = await fetch('/api/cli/status');
+    let statuses = {};
+    if (r.ok) statuses = await r.json();
+    listEl.innerHTML = CLIS.map(c => {
+      const s = statuses[c.id] || {};
+      const installed = s.installed || false;
+      const loggedIn  = s.logged_in || false;
+      const version   = s.version   || '';
+      return `<div class="cli-status-row">
+        <span class="cli-logo">${c.icon}</span>
+        <div class="cli-info">
+          <div class="cli-name">${esc(c.name)}</div>
+          <div class="cli-version">${esc(c.desc)}${version ? ' · v'+esc(version) : ''}</div>
+          <div class="cli-badges">
+            ${installed ? '<span class="badge badge-green">Installed</span>' : '<span class="badge badge-gray">Not found</span>'}
+            ${installed && loggedIn ? '<span class="badge badge-blue">Logged in</span>' : (installed ? '<span class="badge badge-yellow">Not logged in</span>' : '')}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div style="color:#4b5563;font-size:12px;padding:8px">CLI status unavailable — daemon may be offline.</div>';
+  }
+}
+
+function loadSwarmSyncStatus() {
+  // Check vault for key presence
+  fetch('/api/vault/keys').then(r => r.json()).then(keys => {
+    const has = keys.includes('SWARMSYNC_API_KEY');
+    state.swarmSyncEnabled = has;
+    updateSwarmSyncUI(has);
+  }).catch(() => updateSwarmSyncUI(false));
+}
+
+function updateSwarmSyncUI(enabled) {
+  const dot = document.getElementById('swarmsync-dot');
+  const navDot = document.getElementById('swarmsync-nav-dot');
+  const lbl = document.getElementById('swarmsync-status-label');
+  if (dot) { dot.classList.toggle('enabled', enabled); }
+  if (navDot) { navDot.classList.toggle('enabled', enabled); }
+  if (lbl) lbl.textContent = enabled ? 'SwarmSync key configured' : 'Not configured — add SWARMSYNC_API_KEY';
+}
+
+async function saveSwarmSyncKey() {
+  const key = document.getElementById('swarmsync-key-input').value.trim();
+  if (!key) { alert('Enter a SwarmSync API key.'); return; }
+  try {
+    const r = await fetch('/api/vault/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'SWARMSYNC_API_KEY', value: key }),
+    });
+    if (r.ok) {
+      appendAlert('info', 'SwarmSync API key saved to vault.');
+      document.getElementById('swarmsync-key-input').value = '';
+      loadSwarmSyncStatus();
+      loadVaultKeys();
+    } else {
+      appendAlert('error', 'Failed to save SwarmSync key: ' + r.status);
+    }
+  } catch (e) {
+    appendAlert('error', 'Vault unavailable — daemon offline.');
+  }
+}
+
+async function testSwarmSync() {
+  const resultEl = document.getElementById('swarmsync-test-result');
+  if (resultEl) { resultEl.style.display = ''; resultEl.textContent = 'Testing...'; resultEl.style.color = '#94a3b8'; }
+  try {
+    const r = await fetch('/health');
+    if (r.ok) {
+      const d = await r.json();
+      if (resultEl) { resultEl.textContent = 'Gateway reachable: ' + (d.status || 'ok'); resultEl.style.color = '#22c55e'; }
+    } else {
+      if (resultEl) { resultEl.textContent = 'Gateway returned ' + r.status; resultEl.style.color = '#f87171'; }
+    }
+  } catch (e) {
+    if (resultEl) { resultEl.textContent = 'Connection failed — daemon offline.'; resultEl.style.color = '#f87171'; }
+  }
+}
+
+function showAddVaultKeyModal() {
+  document.getElementById('vault-add-modal').style.display = 'flex';
+  document.getElementById('vault-add-name').value = '';
+  document.getElementById('vault-add-value').value = '';
+}
+function closeVaultAddModal() {
+  document.getElementById('vault-add-modal').style.display = 'none';
+}
+
+async function saveVaultKey() {
+  const k = document.getElementById('vault-add-name').value.trim();
+  const v = document.getElementById('vault-add-value').value.trim();
+  if (!k || !v) { alert('Key name and value are required.'); return; }
+  try {
+    const r = await fetch('/api/vault/set', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k, value: v }),
+    });
+    if (r.ok) {
+      closeVaultAddModal();
+      appendAlert('info', 'Vault key saved: ' + k);
+      loadVaultKeys();
+      loadSwarmSyncStatus();
+    } else {
+      appendAlert('error', 'Failed to save vault key: ' + r.status);
+    }
+  } catch (e) {
+    appendAlert('error', 'Vault unavailable — daemon offline.');
+  }
+}
+
+async function deleteVaultKey(key) {
+  if (!confirm('Delete vault key "' + key + '"?')) return;
+  try {
+    const r = await fetch('/api/vault/delete', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    if (r.ok) {
+      appendAlert('info', 'Vault key deleted: ' + key);
+      loadVaultKeys();
+      loadSwarmSyncStatus();
+    } else {
+      appendAlert('error', 'Failed to delete vault key: ' + r.status);
+    }
+  } catch (e) {
+    appendAlert('error', 'Vault unavailable — daemon offline.');
+  }
+}
+
+// ── CHUNK 3: Dashboard home page ──────────────────────────────────
+let _dashRefreshInterval = null;
+
+async function renderDashboard() {
+  await Promise.all([fetchDashboardMetrics(), fetchDashboardUsage()]);
+  const ts = document.getElementById('dash-refresh-ts');
+  if (ts) ts.textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+}
+
+async function fetchDashboardMetrics() {
+  try {
+    // Health
+    const hr = await fetch('/health');
+    if (hr.ok) {
+      const hd = await hr.json();
+      const gEl = document.getElementById('dash-gateway-status');
+      if (gEl) gEl.innerHTML = hd.status === 'ok'
+        ? '<span class="badge badge-green">Online</span>'
+        : '<span class="badge badge-red">Offline</span>';
+      const uptEl = document.getElementById('dash-uptime');
+      if (uptEl && hd.uptime != null) {
+        const h = Math.floor(hd.uptime/3600), m = Math.floor((hd.uptime%3600)/60), s = hd.uptime%60;
+        uptEl.textContent = `Uptime: ${h}h ${m}m ${s}s`;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    // Sessions
+    const sr = await fetch('/api/sessions');
+    if (sr.ok) {
+      const sd = await sr.json();
+      const el = document.getElementById('dash-sessions');
+      if (el) el.textContent = sd.length;
+    }
+  } catch (_) {}
+
+  try {
+    // Budget
+    const br = await fetch('/api/budget/summary');
+    if (br.ok) {
+      const bd = await br.json();
+      const costEl  = document.getElementById('dash-cost-today');
+      const capEl   = document.getElementById('dash-cost-monthly');
+      if (costEl) costEl.textContent = '$' + (bd.session_spend || bd.monthly_spend || 0).toFixed(4);
+      if (capEl)  capEl.textContent  = 'of $' + (bd.monthly_cap || 0).toFixed(2) + ' monthly cap';
+    }
+  } catch (_) {}
+}
+
+async function fetchDashboardUsage() {
+  try {
+    const r = await fetch('/api/usage/summary');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    // Calls today / tokens today
+    const callsEl = document.getElementById('dash-calls-today');
+    if (callsEl) callsEl.textContent = (d.total_calls || 0).toLocaleString();
+
+    const totalTok = (d.total_input_tokens || 0) + (d.total_output_tokens || 0);
+    const tokEl = document.getElementById('dash-tokens-today');
+    if (tokEl) tokEl.textContent = totalTok > 1000
+      ? (totalTok/1000).toFixed(1) + 'K'
+      : totalTok.toString();
+
+    const latEl = document.getElementById('dash-latency');
+    if (latEl) latEl.textContent = d.avg_latency_ms != null ? d.avg_latency_ms.toFixed(0) : '—';
+
+    // Model distribution bars
+    const models = d.models || d.by_model || [];
+    const barsEl = document.getElementById('dash-model-bars');
+    if (barsEl && models.length) {
+      const maxCalls = Math.max(...models.map(m => m.calls || m.total_calls || 0), 1);
+      barsEl.innerHTML = models.map(m => {
+        const calls = m.calls || m.total_calls || 0;
+        const pct   = Math.round(calls / maxCalls * 100);
+        return `<div class="dash-model-bar">
+          <span class="dash-model-label">${esc(m.model || m.name || '?')}</span>
+          <div class="dash-model-fill-wrap"><div class="dash-model-fill" style="width:${pct}%"></div></div>
+          <span class="dash-model-pct">${pct}%</span>
+        </div>`;
+      }).join('');
+    } else if (barsEl && !models.length) {
+      barsEl.innerHTML = '<div style="color:#4b5563;font-size:12px">No model usage data yet.</div>';
+    }
+  } catch (_) {}
+}
+
+// ── CHUNK 4: Skills browser + editor ─────────────────────────────
+
+// Override existing renderSkills to support HTTP API fetch + editor
+function renderSkills() {
+  const grid = document.getElementById('skills-grid');
+  document.getElementById('skills-count').textContent = state.skills.length + ' skills installed';
+  if (!state.skills.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#127381;</div><p>No skills installed. Click "Install Skill" to add one.</p></div>';
+    return;
+  }
+  grid.innerHTML = state.skills.map((s, i) => {
+    const enabled = s.enabled !== false; // default true
+    return `<div class="skill-card" onclick="openSkillPanel(${i})">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
+        <div class="skill-card-name">${esc(s.name)}</div>
+        <label class="skill-toggle" title="${enabled ? 'Disable' : 'Enable'}" onclick="event.stopPropagation()">
+          <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSkillEnabled(${i},this.checked)">
+          <div class="skill-toggle-track"></div>
+          <div class="skill-toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="skill-card-desc">${esc(s.description)}</div>
+      <div class="skill-card-footer">
+        <span class="skill-version">${esc(s.version || '—')}</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openSkillEditor(${i})">Edit</button>
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openSkillPanel(${i})">View</button>
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteSkill(${i})">&#128465;</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openSkillPanel(idx) {
+  const s = state.skills[idx];
+  // Fetch content if not already loaded
+  if (!s.content && s.dir) {
+    try {
+      const r = await fetch('/api/skills/' + encodeURIComponent(s.dir) + '/content');
+      if (r.ok) {
+        const d = await r.json();
+        s.content = d.content || '';
+      }
+    } catch (_) {}
+  }
+  document.getElementById('skill-panel-title').textContent = s.name;
+  document.getElementById('skill-panel-body').textContent = s.content || '(No SKILL.md content)';
+  document.getElementById('skill-panel').style.transform = 'translateX(0)';
+}
+
+async function openSkillEditor(idx) {
+  const s = state.skills[idx];
+  state.editingSkillName = s.dir || s.name;
+  // Fetch content
+  if (!s.content && s.dir) {
+    try {
+      const r = await fetch('/api/skills/' + encodeURIComponent(s.dir) + '/content');
+      if (r.ok) {
+        const d = await r.json();
+        s.content = d.content || '';
+      }
+    } catch (_) {}
+  }
+  document.getElementById('skill-panel-title').textContent = s.name + ' — Editor';
+  // Replace panel body with textarea + save button
+  const body = document.getElementById('skill-panel-body');
+  body.innerHTML = '';
+  body.style.padding = '0';
+  body.style.display = 'flex';
+  body.style.flexDirection = 'column';
+  body.style.gap = '8px';
+
+  const ta = document.createElement('textarea');
+  ta.id = 'skill-panel-editor-ta';
+  ta.className = 'skill-editor-textarea';
+  ta.value = s.content || '';
+  ta.style.flex = '1';
+  ta.style.minHeight = '400px';
+
+  const saveRow = document.createElement('div');
+  saveRow.style.display = 'flex';
+  saveRow.style.gap = '8px';
+  saveRow.style.padding = '8px 16px';
+  saveRow.style.borderTop = '1px solid #1e2433';
+  saveRow.innerHTML = `<button class="btn btn-primary btn-sm" onclick="saveSkillContent(${idx})">Save SKILL.md</button>
+    <button class="btn btn-ghost btn-sm" onclick="openSkillPanel(${idx})">Cancel</button>`;
+
+  body.style.paddingLeft = '0';
+  body.appendChild(ta);
+  body.appendChild(saveRow);
+
+  document.getElementById('skill-panel').style.transform = 'translateX(0)';
+}
+
+async function saveSkillContent(idx) {
+  const s = state.skills[idx];
+  const ta = document.getElementById('skill-panel-editor-ta');
+  if (!ta) return;
+  const content = ta.value;
+  const skillName = s.dir || s.name;
+  try {
+    const r = await fetch('/api/skills/' + encodeURIComponent(skillName) + '/content', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (r.ok) {
+      s.content = content;
+      appendAlert('info', 'Skill "' + s.name + '" saved.');
+      openSkillPanel(idx);
+    } else {
+      appendAlert('error', 'Failed to save skill: ' + r.status);
+    }
+  } catch (e) {
+    appendAlert('error', 'Save failed — daemon offline.');
+  }
+}
+
+async function toggleSkillEnabled(idx, enabled) {
+  const s = state.skills[idx];
+  s.enabled = enabled;
+  const skillName = s.dir || s.name;
+  try {
+    await fetch('/api/skills/' + encodeURIComponent(skillName) + '/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    appendAlert('info', (enabled ? 'Enabled' : 'Disabled') + ' skill: ' + s.name);
+  } catch (_) {}
+}
+
+// ── CHUNK 6: Conduit (search providers) ───────────────────────────
+
+async function renderConduitPage() {
+  const listEl   = document.getElementById('conduit-provider-list');
+  const toggleEl = document.getElementById('conduit-toggle-list');
+  if (!listEl) return;
+
+  // Fetch configured vault keys
+  let vaultKeys = [];
+  try {
+    const r = await fetch('/api/vault/keys');
+    if (r.ok) vaultKeys = await r.json();
+  } catch (_) {}
+
+  const providers = state.conduitProviders;
+  const providerIds = Object.keys(providers);
+
+  // Status list
+  listEl.innerHTML = providerIds.map(pid => {
+    const p = providers[pid];
+    const configured = vaultKeys.includes(p.vaultKey) || vaultKeys.includes(p.vaultKey.toUpperCase());
+    const enabled = state.conduitEnabled[pid] !== false; // default enabled
+    return `<div class="conduit-provider-row">
+      <span class="conduit-provider-icon">${p.icon}</span>
+      <div style="flex:1">
+        <div class="conduit-provider-name">${esc(p.name)}</div>
+        <div class="conduit-provider-key">${esc(p.vaultKey)}</div>
+      </div>
+      ${configured
+        ? '<span class="badge badge-green">Key configured</span>'
+        : `<span class="badge badge-gray">Key missing</span>
+           <a href="#vault" onclick="navigate(\'vault\');return false;" style="font-size:11px;color:#3b82f6;margin-left:6px">Add key</a>`
+      }
+      ${enabled && configured ? '<span class="badge badge-blue" style="margin-left:4px">Active</span>' : ''}
+    </div>`;
+  }).join('');
+
+  // Toggle list
+  toggleEl.innerHTML = providerIds.map(pid => {
+    const p = providers[pid];
+    const enabled = state.conduitEnabled[pid] !== false;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1e2433">
+      <span style="flex:1;font-size:13px;color:#e2e8f0">${esc(p.name)}</span>
+      <label class="skill-toggle">
+        <input type="checkbox" id="conduit-toggle-${esc(pid)}" ${enabled ? 'checked' : ''}>
+        <div class="skill-toggle-track"></div>
+        <div class="skill-toggle-thumb"></div>
+      </label>
+    </div>`;
+  }).join('');
+}
+
+async function saveConduitSettings() {
+  const providers = state.conduitProviders;
+  const patch = {};
+  Object.keys(providers).forEach(pid => {
+    const el = document.getElementById('conduit-toggle-' + pid);
+    if (el) {
+      state.conduitEnabled[pid] = el.checked;
+      patch['conduit_' + pid + '_enabled'] = el.checked;
+    }
+  });
+  try {
+    await fetch('/api/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    appendAlert('info', 'Conduit provider settings saved.');
+  } catch (_) {
+    appendAlert('error', 'Failed to save conduit settings.');
+  }
+  renderConduitPage();
+}
+
+// CHUNK 6: detect conduit tool calls in chat
+function handleWsMessageConduit(data) {
+  if (data.type === 'tool_call') {
+    const name = (data.tool_name || data.name || '').toLowerCase();
+    if (name.includes('search') || name.includes('conduit') || name.includes('web')) {
+      // Show special conduit card
+      appendConduitCard(data);
+      return true;
+    }
+  }
+  return false;
+}
+
+function appendConduitCard(data) {
+  if (state.currentSession !== (data.session_id || state.currentSession)) return;
+  const wrap = document.getElementById('chat-messages');
+  if (!wrap) return;
+  const query = data.inputs?.query || data.tool_input?.query || JSON.stringify(data.inputs || {}, null, 2);
+  const card = document.createElement('div');
+  card.className = 'msg-row';
+  card.innerHTML = `<div class="msg-avatar bot-av" style="font-size:10px;background:#1e3a5f44;color:#a78bfa">SR</div>
+    <div style="flex:1;max-width:72%">
+      <div class="tool-card">
+        <div class="tool-card-header">
+          <span style="font-size:11px;color:#4b5563">Conduit search</span>
+          <span class="tool-card-name">${esc(data.tool_name || 'web_search')}</span>
+          <span class="badge badge-blue" style="font-size:10px;margin-left:auto">Search</span>
+        </div>
+        <div style="padding:8px 12px;font-size:12px;color:#64748b">${esc(String(query).slice(0, 200))}</div>
+      </div>
+    </div>`;
+  wrap.appendChild(card);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+// ── CHUNK 7: Audit Log ─────────────────────────────────────────────
+
+async function loadAuditEntries() {
+  const listEl = document.getElementById('audit-entries-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="padding:24px;text-align:center;color:#4b5563;font-size:13px">Loading...</div>';
+
+  const sessionF = (document.getElementById('audit-session-filter')?.value || '').trim();
+  const actionF  = document.getElementById('audit-action-filter')?.value || '';
+
+  let url = '/api/audit/entries?limit=200';
+  if (sessionF) url += '&session_id=' + encodeURIComponent(sessionF);
+  if (actionF)  url += '&action_type=' + encodeURIComponent(actionF);
+
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    const entries = await r.json();
+    state.auditEntries = entries;
+    renderAuditEntries(entries);
+  } catch (e) {
+    listEl.innerHTML = '<div style="padding:16px;color:#ef4444;font-size:12px">Failed to load audit log — daemon may be offline.</div>';
+  }
+}
+
+function filterAuditEntries() {
+  // Re-fetch with current filter values
+  clearTimeout(filterAuditEntries._timer);
+  filterAuditEntries._timer = setTimeout(loadAuditEntries, 300);
+}
+
+function renderAuditEntries(entries) {
+  const listEl = document.getElementById('audit-entries-list');
+  if (!listEl) return;
+  if (!entries.length) {
+    listEl.innerHTML = '<div style="padding:24px;text-align:center;color:#4b5563;font-size:13px">No audit entries found.</div>';
+    return;
+  }
+  listEl.innerHTML = entries.map(e => {
+    const ts = e.timestamp ? new Date(e.timestamp * 1000 || e.timestamp).toLocaleString() : '?';
+    const costCents = e.cost_cents || 0;
+    const errHtml = e.error ? `<span class="badge badge-red" style="font-size:10px">${esc(e.error.slice(0,40))}</span>` : '';
+    return `<div class="audit-entry-row">
+      <div style="min-width:140px;color:#4b5563;font-size:11px;flex-shrink:0">${ts}</div>
+      <div style="flex:1">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span class="badge badge-gray" style="font-size:10px">${esc(e.action_type||'?')}</span>
+          <span style="font-size:12px;color:#93c5fd;font-family:monospace">${esc(e.tool_name||'')}</span>
+          <span style="font-size:11px;color:#4b5563">${esc((e.session_id||'').slice(0,30))}</span>
+          ${errHtml}
+          ${costCents ? `<span style="font-size:10px;color:#22c55e">$${(costCents/100).toFixed(4)}</span>` : ''}
+        </div>
+        <div class="audit-hash">hash: ${esc((e.row_hash||'').slice(0,16))}… prev: ${esc((e.prev_hash||'').slice(0,16))}…</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function verifyAuditChain() {
+  const resultEl = document.getElementById('audit-verify-result');
+  if (resultEl) { resultEl.style.display = ''; resultEl.textContent = 'Verifying...'; resultEl.style.color = '#94a3b8'; }
+  try {
+    const sessionF = (document.getElementById('audit-session-filter')?.value || '').trim();
+    const body = sessionF ? { session_id: sessionF } : {};
+    const r = await fetch('/api/audit/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (resultEl) {
+      if (d.ok) {
+        resultEl.textContent = 'Chain VALID ✓';
+        resultEl.style.color = '#22c55e';
+      } else {
+        resultEl.textContent = 'Chain INVALID — tampering detected!';
+        resultEl.style.color = '#ef4444';
+      }
+    }
+    // Update sidebar badge
+    updateAuditIntegrityBadge(d.ok);
+    appendAlert(d.ok ? 'info' : 'error', d.ok ? 'Audit chain integrity verified.' : 'Audit chain integrity FAILED!');
+  } catch (e) {
+    if (resultEl) { resultEl.textContent = 'Verify failed — daemon offline'; resultEl.style.color = '#f87171'; }
+  }
+}
+
+function downloadAuditLog() {
+  const sessionF = (document.getElementById('audit-session-filter')?.value || '').trim();
+  const url = '/api/audit/download' + (sessionF ? '?session_id=' + encodeURIComponent(sessionF) : '');
+  const a = document.createElement('a');
+  a.href = url; a.download = 'audit-log.jsonl'; a.click();
+}
+
+// CHUNK 8: Audit integrity badge in sidebar
+function updateAuditIntegrityBadge(valid) {
+  const dot = document.getElementById('audit-integrity-dot');
+  const lbl = document.getElementById('audit-integrity-label');
+  if (!dot) return;
+  if (valid === null) {
+    dot.className = 'audit-integrity-dot';
+    if (lbl) lbl.textContent = 'Audit chain';
+    return;
+  }
+  dot.className = 'audit-integrity-dot ' + (valid ? 'valid' : 'invalid');
+  if (lbl) lbl.textContent = valid ? 'Chain intact' : 'Chain broken!';
+}
+
+async function checkAuditIntegrityOnBoot() {
+  try {
+    const r = await fetch('/api/audit/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const d = await r.json();
+    updateAuditIntegrityBadge(d.ok);
+  } catch (_) {
+    updateAuditIntegrityBadge(null);
+  }
+}
+
+// ── CHUNK 7: Memory Browser ────────────────────────────────────────
+
+async function loadMemoryStats() {
+  try {
+    const r = await fetch('/api/memory/stats');
+    if (r.ok) {
+      const d = await r.json();
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      set('mem-stat-facts',  d.facts  != null ? d.facts.toLocaleString()  : '0');
+      set('mem-stat-nodes',  d.kg_nodes != null ? d.kg_nodes.toLocaleString() : '0');
+      set('mem-stat-edges',  d.kg_edges != null ? d.kg_edges.toLocaleString() : '0');
+    }
+  } catch (_) {}
+}
+
+async function loadMemoryFiles() {
+  const listEl = document.getElementById('memory-file-list');
+  if (!listEl) return;
+  try {
+    const r = await fetch('/api/memory/files');
+    if (r.ok) {
+      const files = await r.json();
+      if (!files.length) {
+        listEl.innerHTML = '<div style="color:#4b5563;font-size:12px">No memory files found.</div>';
+        return;
+      }
+      listEl.innerHTML = files.map(f => `<div class="memory-file-card" onclick="openMemoryFile('${esc(f)}')">
+        <div class="memory-file-name">${esc(f)}</div>
+        <div class="memory-file-meta">${f.endsWith('.json') ? 'JSON data' : 'Markdown'}</div>
+      </div>`).join('');
+    }
+  } catch (_) {
+    if (listEl) listEl.innerHTML = '<div style="color:#ef4444;font-size:12px">Failed to load.</div>';
+  }
+}
+
+async function openMemoryFile(filename) {
+  state.memoryFile = filename;
+  const titleEl  = document.getElementById('memory-editor-title');
+  const ta       = document.getElementById('memory-editor-ta');
+  const saveBtn  = document.getElementById('memory-save-btn');
+  if (!ta) return;
+  if (titleEl) titleEl.textContent = filename;
+  ta.value = 'Loading...';
+  if (saveBtn) saveBtn.style.display = '';
+  try {
+    const r = await fetch('/api/memory/content?file=' + encodeURIComponent(filename));
+    if (r.ok) {
+      const d = await r.json();
+      ta.value = d.content || '';
+    } else {
+      ta.value = '';
+    }
+  } catch (_) {
+    ta.value = '[Error loading file]';
+  }
+}
+
+async function saveMemoryFile() {
+  const filename = state.memoryFile;
+  const ta = document.getElementById('memory-editor-ta');
+  if (!filename || !ta) return;
+  try {
+    const r = await fetch('/api/memory/content', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: filename, content: ta.value }),
+    });
+    if (r.ok) {
+      appendAlert('info', 'Memory file saved: ' + filename);
+    } else {
+      appendAlert('error', 'Failed to save: ' + r.status);
+    }
+  } catch (_) {
+    appendAlert('error', 'Save failed — daemon offline.');
+  }
+}
+
+// ── CHUNK 8: Config hash guard + validation + restart ──────────────
+
+async function renderConfig() {
+  // Fetch live config
+  try {
+    const r = await fetch('/api/config');
+    if (r.ok) {
+      const cfg = await r.json();
+      if (Object.keys(cfg).length) state.config = cfg;
+    }
+  } catch (_) {}
+
+  // Compute hash of current config for stale-check
+  const jsonStr = JSON.stringify(state.config);
+  state.configHash = await computeHash(jsonStr);
+
+  const fields = document.getElementById('cfg-fields');
+  const raw    = document.getElementById('cfg-raw-json');
+  const cfg    = state.config;
+  const keys   = Object.keys(cfg);
+  if (!keys.length) {
+    fields.innerHTML = '<div style="color:#4b5563;font-size:13px">Config not loaded. Daemon may be offline.</div>';
+    raw.value = '{}';
+    return;
+  }
+  fields.innerHTML = keys.map(k => {
+    const v = cfg[k];
+    const inputType = typeof v === 'number' ? 'number' : 'text';
+    // Sanitize key for use as an HTML id: allow only word chars and hyphens
+    const safeId = k.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    return `<div class="form-group">
+      <label class="form-label">${esc(k)}</label>
+      <input class="form-input" type="${inputType}" id="cfg-field-${safeId}" value="${esc(String(v))}">
+    </div>`;
+  }).join('');
+  raw.value = JSON.stringify(cfg, null, 2);
+  document.getElementById('cfg-stale-warning').style.display = 'none';
+}
+
+async function computeHash(str) {
+  try {
+    const buf = new TextEncoder().encode(str);
+    const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  } catch (_) {
+    return str.length.toString();
+  }
+}
+
+async function saveConfig() {
+  const rawEl  = document.getElementById('cfg-raw-json');
+  const isRaw  = document.getElementById('cfg-raw-view').style.display !== 'none';
+  let payload;
+  if (isRaw) {
+    try { payload = JSON.parse(rawEl.value); }
+    catch { alert('Invalid JSON'); return; }
+  } else {
+    payload = { ...state.config };
+    Object.keys(state.config).forEach(k => {
+      const safeId = k.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const el = document.getElementById('cfg-field-' + safeId);
+      if (el) payload[k] = el.type === 'number' ? Number(el.value) : el.value;
+    });
+  }
+
+  // Client-side validation
+  const requiredNumeric = ['context_budget_tokens','monthly_budget_usd','temperature'];
+  for (const f of requiredNumeric) {
+    if (f in payload && isNaN(Number(payload[f]))) {
+      alert('Field "' + f + '" must be numeric.'); return;
+    }
+  }
+  if ('temperature' in payload) {
+    const t = Number(payload.temperature);
+    if (t < 0 || t > 2) { alert('Temperature must be between 0 and 2.'); return; }
+  }
+
+  // Include hash for stale-detection
+  payload._hash = state.configHash;
+
+  try {
+    const r = await fetch('/api/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (r.ok) {
+      state.config = payload;
+      delete state.config._hash;
+      appendAlert('info', 'Config saved.');
+      renderConfig();
+    } else if (r.status === 409) {
+      document.getElementById('cfg-stale-warning').style.display = 'flex';
+      appendAlert('error', 'Config stale — someone else modified it. Refresh first.');
+    } else {
+      appendAlert('error', 'Config save failed: ' + r.status);
+    }
+  } catch (_) {
+    // Fallback to legacy endpoint
+    try {
+      const r2 = await fetch('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (r2.ok) { state.config = payload; delete state.config._hash; appendAlert('info', 'Config saved.'); }
+      else appendAlert('error', 'Config save failed: ' + r2.status);
+    } catch (__) { appendAlert('error', 'Config save failed — daemon offline.'); }
+  }
+}
+
+async function saveAndRestartDaemon() {
+  await saveConfig();
+  try {
+    const r = await fetch('/api/daemon/restart', { method: 'POST' });
+    if (r.ok) {
+      appendAlert('info', 'Daemon restart scheduled. Reconnecting...');
+      setTimeout(connectWS, 3000);
+    } else {
+      appendAlert('error', 'Restart failed: ' + r.status);
+    }
+  } catch (_) {
+    appendAlert('error', 'Restart request failed — daemon may already be restarting.');
+    setTimeout(connectWS, 5000);
+  }
+}
+
+// ── CHUNK 8: Action Guard status ──────────────────────────────────
+
+async function loadActionGuardStatus() {
+  const el = document.getElementById('action-guard-rules');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/action-guard/status');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const checks = d.checks || [];
+    el.innerHTML = checks.map(c => `<div class="action-guard-rule">
+      <span class="action-guard-icon">${c.active ? '&#10004;' : '&#10006;'}</span>
+      <div>
+        <div class="action-guard-title">${esc(c.rule)}</div>
+        <div class="action-guard-desc">${esc(c.description)}</div>
+      </div>
+      <span class="badge ${c.active ? 'badge-green' : 'badge-gray'}" style="margin-left:auto">${c.active ? 'Active' : 'Inactive'}</span>
+    </div>`).join('') +
+    `<div style="margin-top:12px;font-size:12px;color:#64748b">Autonomy level: ${(d.autonomy_level*100).toFixed(0)}%
+      <div class="progress-bar-wrap" style="margin-top:4px"><div class="progress-bar-fill" style="width:${d.autonomy_level*100}%"></div></div>
+    </div>`;
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Action Guard status unavailable.</div>';
+  }
+}
+
+// ── CHUNK 8: Reversibility tracking ───────────────────────────────
+
+async function loadReversibilityEntries() {
+  const el = document.getElementById('reversibility-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/audit/entries?action_type=reversibility&limit=20');
+    if (!r.ok) throw new Error(r.status);
+    const entries = await r.json();
+    if (!entries.length) {
+      el.innerHTML = '<div style="color:#4b5563;font-size:12px">No reversibility entries in audit log.</div>';
+      return;
+    }
+    el.innerHTML = entries.map(e => {
+      const ts = e.timestamp ? new Date(e.timestamp * 1000 || e.timestamp).toLocaleString() : '?';
+      const isReversible = !e.error && e.action_type === 'reversibility';
+      return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #1e2433">
+        <span style="font-size:11px;color:#4b5563;min-width:140px">${ts}</span>
+        <span style="font-size:12px;color:#94a3b8;flex:1">${esc(e.tool_name||'—')}</span>
+        <span class="badge ${isReversible ? 'badge-green' : 'badge-yellow'}">${isReversible ? 'Reversible' : 'Irreversible'}</span>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Could not load reversibility data.</div>';
+  }
+}
 
 // ── Onboarding Wizard ─────────────────────────────────────────────
 let wizardStep = 1;
@@ -1465,8 +3195,10 @@ setInterval(pollHealth, 15000);
 
 // ── Boot ──────────────────────────────────────────────────────────
 function boot() {
-  // Parse hash for initial page
-  const hash = window.location.hash.replace('#', '') || 'chat';
+  // Parse hash for initial page — whitelist against arbitrary hash values
+  const VALID_PAGES = new Set(Object.keys(PAGE_TITLES));
+  const rawHash = window.location.hash.replace('#', '');
+  const hash = VALID_PAGES.has(rawHash) ? rawHash : 'chat';
   navigate(hash);
   connectWS();
   pollHealth();
@@ -1487,11 +3219,24 @@ function boot() {
     monthly_budget_usd: 25,
   };
 
+  // CHUNK 2: load SwarmSync nav indicator
+  loadSwarmSyncStatus();
+
+  // CHUNK 3: auto-refresh dashboard every 10s
+  setInterval(() => {
+    if (state.currentPage === 'dashboard') renderDashboard();
+  }, 10000);
+
+  // CHUNK 8: audit chain integrity badge (non-blocking, best effort)
+  setTimeout(checkAuditIntegrityOnBoot, 2000);
+
   appendLog('INFO', 'Cato dashboard loaded');
 }
 
 window.addEventListener('hashchange', () => {
-  const page = window.location.hash.replace('#', '') || 'chat';
+  const VALID_PAGES = new Set(Object.keys(PAGE_TITLES));
+  const rawPage = window.location.hash.replace('#', '');
+  const page = VALID_PAGES.has(rawPage) ? rawPage : 'chat';
   navigate(page);
 });
 

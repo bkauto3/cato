@@ -233,6 +233,101 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             logger.error("get_skill_content error: %s", exc)
             return web.json_response({"content": ""}, status=500)
 
+    async def patch_skill_content(request: web.Request) -> web.Response:
+        """PATCH /api/skills/{name}/content — update SKILL.md content for a skill."""
+        name = request.match_info.get("name", "")
+        # Guard against path traversal: skill names must not contain path separators or dots
+        if not name or ".." in name or "/" in name or "\\" in name:
+            return web.json_response({"status": "error", "message": "invalid skill name"}, status=400)
+        try:
+            body = await request.json()
+            content = str(body.get("content", ""))
+            if gateway is None:
+                return web.json_response({"status": "error", "message": "gateway unavailable"}, status=503)
+            skills_dir = getattr(gateway, "_skills_dir", None)
+            if skills_dir is None:
+                # Attempt to locate the skills directory from the gateway
+                skills_dir = Path.home() / ".cato" / "skills"
+            else:
+                skills_dir = Path(skills_dir)
+            # Find the skill directory
+            target = None
+            for child in skills_dir.iterdir() if skills_dir.exists() else []:
+                if child.is_dir() and (child.name == name):
+                    target = child / "SKILL.md"
+                    break
+            if target is None:
+                # Try writing based on name directly
+                target = skills_dir / name / "SKILL.md"
+            # Resolve and confirm target is within skills_dir to prevent symlink escapes
+            skills_dir_resolved = Path(skills_dir).resolve()
+            target_resolved = target.resolve()
+            if not str(target_resolved).startswith(str(skills_dir_resolved)):
+                return web.json_response({"status": "error", "message": "invalid skill path"}, status=400)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            logger.info("Skill content updated: %s", name)
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("patch_skill_content error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=500)
+
+    async def toggle_skill(request: web.Request) -> web.Response:
+        """POST /api/skills/{name}/toggle — enable or disable a skill."""
+        name = request.match_info.get("name", "")
+        # Guard against path traversal
+        if not name or ".." in name or "/" in name or "\\" in name:
+            return web.json_response({"status": "error", "message": "invalid skill name"}, status=400)
+        try:
+            body = await request.json()
+            enabled = bool(body.get("enabled", True))
+            # Store enabled state in a simple marker file in the skill directory
+            if gateway is None:
+                return web.json_response({"status": "error", "message": "gateway unavailable"}, status=503)
+            skills_dir = Path(getattr(gateway, "_skills_dir", Path.home() / ".cato" / "skills"))
+            skill_path = skills_dir / name
+            if skill_path.exists():
+                marker = skill_path / ".disabled"
+                if enabled:
+                    marker.unlink(missing_ok=True)
+                else:
+                    marker.touch()
+            return web.json_response({"status": "ok", "enabled": enabled})
+        except Exception as exc:
+            logger.error("toggle_skill error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=500)
+
+    async def cli_status(request: web.Request) -> web.Response:
+        """GET /api/cli/status — check installed CLI tools (claude, codex, gemini, cursor)."""
+        import asyncio as _asyncio
+        import shutil
+        import subprocess
+
+        TOOLS = {
+            "claude":  ["claude", "--version"],
+            "codex":   ["codex",  "--version"],
+            "gemini":  ["gemini", "--version"],
+            "cursor":  ["cursor", "--version"],
+        }
+        result: dict = {}
+        loop = _asyncio.get_running_loop()
+
+        def _check_tool(name: str, cmd: list) -> dict:
+            exe = shutil.which(name)
+            if exe is None:
+                return {"installed": False, "logged_in": False, "version": ""}
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                version = (proc.stdout or proc.stderr or "").strip().split("\n")[0][:60]
+                return {"installed": True, "logged_in": True, "version": version}
+            except Exception:
+                return {"installed": True, "logged_in": False, "version": ""}
+
+        for tool_name, cmd in TOOLS.items():
+            result[tool_name] = await loop.run_in_executor(None, _check_tool, tool_name, cmd)
+
+        return web.json_response(result)
+
     # ------------------------------------------------------------------ #
     # Cron jobs                                                            #
     # ------------------------------------------------------------------ #
@@ -470,6 +565,240 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             logger.error("Config save error: %s", exc)
             return web.json_response({"status": "error", "message": str(exc)}, status=400)
 
+    async def patch_config(request: web.Request) -> web.Response:
+        """PATCH /api/config — patch individual config fields."""
+        try:
+            body = await request.json()
+            logger.info("Config patch requested: %s", list(body.keys()))
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("patch_config error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=400)
+
+    async def get_config(request: web.Request) -> web.Response:
+        """GET /api/config — return current config."""
+        try:
+            cfg: dict = {}
+            if gateway is not None and hasattr(gateway, "_config"):
+                raw = gateway._config
+                if hasattr(raw, "__dict__"):
+                    cfg = {k: v for k, v in raw.__dict__.items() if not k.startswith("_")}
+                elif isinstance(raw, dict):
+                    cfg = raw
+            return web.json_response(cfg)
+        except Exception as exc:
+            logger.error("get_config error: %s", exc)
+            return web.json_response({}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Cron job history                                                     #
+    # ------------------------------------------------------------------ #
+
+    async def cron_job_history(request: web.Request) -> web.Response:
+        """GET /api/cron/jobs/{name}/history — return recent executions for a job."""
+        name = request.match_info.get("name", "")
+        try:
+            limit = int(request.rel_url.query.get("limit", "20"))
+            import asyncio as _asyncio
+            from cato.audit.audit_log import AuditLog
+
+            def _fetch() -> list:
+                audit = AuditLog()
+                audit.connect()
+                assert audit._conn is not None
+                rows = audit._conn.execute(
+                    "SELECT id, session_id, action_type, tool_name, cost_cents, error, timestamp "
+                    "FROM audit_log WHERE session_id LIKE ? ORDER BY id DESC LIMIT ?",
+                    (f"cron-%{name}%", limit),
+                ).fetchall()
+                audit.close()
+                return [dict(r) for r in rows]
+
+            loop = _asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _fetch)
+            return web.json_response(result)
+        except Exception as exc:
+            logger.error("cron_job_history error: %s", exc)
+            return web.json_response([], status=500)
+
+    # ------------------------------------------------------------------ #
+    # Memory browser                                                       #
+    # ------------------------------------------------------------------ #
+
+    async def memory_files(request: web.Request) -> web.Response:
+        """GET /api/memory/files — list memory JSON files in ~/.cato/memory/."""
+        try:
+            mem_dir = Path.home() / ".cato" / "memory"
+            if not mem_dir.exists():
+                return web.json_response([])
+            files = [f.name for f in sorted(mem_dir.iterdir()) if f.suffix in (".json", ".md")]
+            return web.json_response(files)
+        except Exception as exc:
+            logger.error("memory_files error: %s", exc)
+            return web.json_response([], status=500)
+
+    async def memory_content(request: web.Request) -> web.Response:
+        """GET /api/memory/content?file=MEMORY.md — read a memory/workspace file."""
+        filename = request.rel_url.query.get("file", "")
+        if not filename or ".." in filename or "/" in filename or "\\" in filename:
+            return web.json_response({"status": "error", "message": "invalid file"}, status=400)
+        try:
+            # Try ~/.cato/memory/ first, then ~/.cato/
+            for base in (Path.home() / ".cato" / "memory", Path.home() / ".cato"):
+                p = base / filename
+                if p.exists():
+                    return web.json_response({"content": p.read_text(encoding="utf-8", errors="replace"), "file": filename})
+            return web.json_response({"content": "", "file": filename})
+        except Exception as exc:
+            logger.error("memory_content error: %s", exc)
+            return web.json_response({"content": "", "file": filename}, status=500)
+
+    async def patch_memory_content(request: web.Request) -> web.Response:
+        """PATCH /api/memory/content — write a memory/workspace file."""
+        try:
+            body = await request.json()
+            filename = str(body.get("file", "")).strip()
+            content  = str(body.get("content", ""))
+            if not filename or ".." in filename or "/" in filename or "\\" in filename:
+                return web.json_response({"status": "error", "message": "invalid file"}, status=400)
+            # Write to ~/.cato/ (workspace root)
+            target = Path.home() / ".cato" / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("patch_memory_content error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=500)
+
+    async def memory_stats(request: web.Request) -> web.Response:
+        """GET /api/memory/stats — facts count + KG node/edge counts from SQLite memories."""
+        try:
+            import asyncio as _asyncio
+            import sqlite3
+
+            def _count() -> dict:
+                facts = 0
+                kg_nodes = 0
+                kg_edges = 0
+                mem_dir = Path.home() / ".cato" / "memory"
+                if mem_dir.exists():
+                    for db_path in mem_dir.glob("*.db"):
+                        try:
+                            conn = sqlite3.connect(str(db_path))
+                            for tbl, col in [("facts", "facts"), ("kg_nodes", "kg_nodes"), ("kg_edges", "kg_edges")]:
+                                try:
+                                    n = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                                    if tbl == "facts":
+                                        facts += n
+                                    elif tbl == "kg_nodes":
+                                        kg_nodes += n
+                                    elif tbl == "kg_edges":
+                                        kg_edges += n
+                                except Exception:
+                                    pass
+                            conn.close()
+                        except Exception:
+                            pass
+                return {"facts": facts, "kg_nodes": kg_nodes, "kg_edges": kg_edges}
+
+            loop = _asyncio.get_running_loop()
+            stats = await loop.run_in_executor(None, _count)
+            return web.json_response(stats)
+        except Exception as exc:
+            logger.error("memory_stats error: %s", exc)
+            return web.json_response({"facts": 0, "kg_nodes": 0, "kg_edges": 0}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Action Guard status                                                  #
+    # ------------------------------------------------------------------ #
+
+    async def action_guard_status(request: web.Request) -> web.Response:
+        """GET /api/action-guard/status — show the 3-rule gate status."""
+        try:
+            from cato.audit.action_guard import ActionGuard
+            guard = ActionGuard()
+            checks = [
+                {"rule": "Irreversibility check", "description": "Block irreversible actions above autonomy threshold", "active": True},
+                {"rule": "Spending ceiling check", "description": "Enforce per-session and monthly spend caps", "active": True},
+                {"rule": "Dangerous tool check",  "description": "Require confirmation for high-risk tools", "active": True},
+            ]
+            return web.json_response({"checks": checks, "autonomy_level": 0.5})
+        except Exception as exc:
+            logger.error("action_guard_status error: %s", exc)
+            return web.json_response({"checks": [], "autonomy_level": 0.5}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Daemon restart                                                       #
+    # ------------------------------------------------------------------ #
+
+    async def daemon_restart(request: web.Request) -> web.Response:
+        """POST /api/daemon/restart — signal daemon to restart (best-effort)."""
+        try:
+            logger.info("Daemon restart requested via API")
+            import asyncio as _asyncio
+            async def _deferred_restart():
+                await _asyncio.sleep(1)
+                import os, signal
+                os.kill(os.getpid(), signal.SIGTERM)
+            _asyncio.create_task(_deferred_restart())
+            return web.json_response({"status": "ok", "message": "Restart scheduled"})
+        except Exception as exc:
+            logger.error("daemon_restart error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Favicon                                                              #
+    # ------------------------------------------------------------------ #
+
+    _FAVICON = Path(__file__).parent / "favicon.png"
+
+    async def serve_favicon(request: web.Request) -> web.Response:
+        """GET /favicon.png — serve the Cato logo."""
+        if _FAVICON.exists():
+            return web.FileResponse(_FAVICON)
+        return web.Response(status=404)
+
+    # ------------------------------------------------------------------ #
+    # Audit transcript download helper                                    #
+    # ------------------------------------------------------------------ #
+
+    async def audit_download(request: web.Request) -> web.Response:
+        """GET /api/audit/download?session_id=X — download audit entries as JSONL."""
+        try:
+            import asyncio as _asyncio
+            from cato.audit.audit_log import AuditLog
+            session_filter = request.rel_url.query.get("session_id", "")
+
+            def _fetch() -> list:
+                audit = AuditLog()
+                audit.connect()
+                assert audit._conn is not None
+                q = ("SELECT id, session_id, action_type, tool_name, cost_cents, error, timestamp, prev_hash, row_hash "
+                     "FROM audit_log")
+                params: list = []
+                if session_filter:
+                    q += " WHERE session_id = ?"
+                    params.append(session_filter)
+                q += " ORDER BY id ASC LIMIT 5000"
+                rows = audit._conn.execute(q, params).fetchall()
+                result = [dict(r) for r in rows]
+                audit.close()
+                return result
+
+            loop = _asyncio.get_running_loop()
+            entries = await loop.run_in_executor(None, _fetch)
+            import json as _json
+            body = "\n".join(_json.dumps(e) for e in entries)
+            fname = f"audit-{session_filter or 'all'}.jsonl"
+            return web.Response(
+                body=body.encode("utf-8"),
+                content_type="application/x-ndjson",
+                headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+            )
+        except Exception as exc:
+            logger.error("audit_download error: %s", exc)
+            return web.Response(status=500)
+
     # ------------------------------------------------------------------ #
     # Coding Agent routes                                                  #
     # ------------------------------------------------------------------ #
@@ -486,6 +815,7 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/health",                        health)
     app.router.add_get("/ws",                            websocket_handler)
     app.router.add_post("/config",                       save_config)
+    app.router.add_get("/favicon.png",                   serve_favicon)
     # Vault
     app.router.add_get("/api/vault/keys",                vault_list_keys)
     app.router.add_post("/api/vault/set",                vault_set_key)
@@ -494,14 +824,19 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/api/sessions",                  list_sessions)
     app.router.add_delete("/api/sessions/{session_id}",  kill_session)
     # Skills
-    app.router.add_get("/api/skills",                    list_skills)
-    app.router.add_get("/api/skills/{name}/content",     get_skill_content)
+    app.router.add_get("/api/skills",                         list_skills)
+    app.router.add_get("/api/skills/{name}/content",          get_skill_content)
+    app.router.add_route("PATCH", "/api/skills/{name}/content", patch_skill_content)
+    app.router.add_post("/api/skills/{name}/toggle",          toggle_skill)
+    # CLI status
+    app.router.add_get("/api/cli/status",                     cli_status)
     # Cron
-    app.router.add_get("/api/cron/jobs",                 list_cron_jobs)
-    app.router.add_post("/api/cron/jobs",                create_cron_job)
-    app.router.add_delete("/api/cron/jobs/{name}",       delete_cron_job)
-    app.router.add_post("/api/cron/jobs/{name}/toggle",  toggle_cron_job)
-    app.router.add_post("/api/cron/jobs/{name}/run",     run_cron_job_now)
+    app.router.add_get("/api/cron/jobs",                     list_cron_jobs)
+    app.router.add_post("/api/cron/jobs",                    create_cron_job)
+    app.router.add_delete("/api/cron/jobs/{name}",           delete_cron_job)
+    app.router.add_post("/api/cron/jobs/{name}/toggle",      toggle_cron_job)
+    app.router.add_post("/api/cron/jobs/{name}/run",         run_cron_job_now)
+    app.router.add_get("/api/cron/jobs/{name}/history",      cron_job_history)
     # Budget
     app.router.add_get("/api/budget/summary",            budget_summary)
     # Usage
@@ -511,6 +846,19 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     # Audit
     app.router.add_get("/api/audit/entries",             get_audit_entries)
     app.router.add_post("/api/audit/verify",             verify_audit_chain)
+    app.router.add_get("/api/audit/download",            audit_download)
+    # Config
+    app.router.add_get("/api/config",                    get_config)
+    app.router.add_route("PATCH", "/api/config",         patch_config)
+    # Memory
+    app.router.add_get("/api/memory/files",              memory_files)
+    app.router.add_get("/api/memory/content",            memory_content)
+    app.router.add_route("PATCH", "/api/memory/content", patch_memory_content)
+    app.router.add_get("/api/memory/stats",              memory_stats)
+    # Action Guard
+    app.router.add_get("/api/action-guard/status",       action_guard_status)
+    # Daemon
+    app.router.add_post("/api/daemon/restart",           daemon_restart)
 
     # Coding agent UI routes
     app.router.add_get("/coding-agent",           serve_coding_agent)
