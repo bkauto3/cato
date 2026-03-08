@@ -26,11 +26,16 @@ Mounts:
   POST /api/audit/verify             → Verify audit chain integrity
   GET /api/config                    → Get current config (registered via register_all_routes)
   PATCH /api/config                  → Patch config fields (registered via register_all_routes)
+  GET /api/adapters                  → List channel adapters and status
+  GET /api/heartbeat                 → HeartbeatMonitor state
   GET /coding-agent                  → coding_agent.html entry page
   GET /coding-agent/{task_id}        → coding_agent.html SPA (task view)
   POST /api/coding-agent/invoke      → Create task, returns task_id
   GET /api/coding-agent/{tid}        → Task metadata
   GET /ws/coding-agent/{tid}         → WebSocket streaming for task
+  GET /api/sessions/{session_id}/checkpoints           → List session checkpoints
+  GET /api/sessions/{session_id}/checkpoints/{cid}     → Single checkpoint summary
+  GET /api/sessions/{session_id}/receipt               → Signed session receipt
 """
 
 from __future__ import annotations
@@ -807,6 +812,8 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             content = str(body.get("content", ""))
             if not name or ".." in name or "/" in name or "\\" in name:
                 return web.json_response({"error": "invalid name"}, status=400)
+            if name not in _WORKSPACE_ALLOWED:
+                return web.json_response({"error": "file not allowed"}, status=400)
             d = _workspace_dir()
             d.mkdir(parents=True, exist_ok=True)
             (d / name).write_text(content, encoding="utf-8")
@@ -892,6 +899,134 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response({"status": "error", "message": str(exc)}, status=500)
 
     # ------------------------------------------------------------------ #
+    # Diagnostics                                                          #
+    # ------------------------------------------------------------------ #
+
+    async def diagnostics_query_classifier(request: web.Request) -> web.Response:
+        """GET /api/diagnostics/query-classifier — tier classification info."""
+        try:
+            tiers = {
+                "TIER_A": {"label": "Simple (Gemini only)", "description": "Single-fact lookups, unit conversions, definitions"},
+                "TIER_B": {"label": "Standard (Claude)", "description": "Single-task coding, writing, analysis"},
+                "TIER_C": {"label": "Complex (Fan-out)", "description": "Multi-step reasoning, ambiguous queries, high token count"},
+            }
+            return web.json_response({"tiers": tiers, "classifier": "keyword+token"})
+        except Exception as exc:
+            logger.error("diagnostics_query_classifier error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def diagnostics_contradiction_health(request: web.Request) -> web.Response:
+        """GET /api/diagnostics/contradiction-health — contradiction detector summary."""
+        try:
+            import asyncio as _asyncio
+            from cato.memory.contradiction_detector import ContradictionDetector
+            from cato.platform import get_data_dir
+            db_path = get_data_dir() / "default" / "contradictions.db"
+            detector = ContradictionDetector(db_path=str(db_path))
+            def _fetch():
+                try:
+                    return detector.get_health_summary()
+                finally:
+                    detector.close()
+            loop = _asyncio.get_running_loop()
+            summary = await loop.run_in_executor(None, _fetch)
+            # get_health_summary returns: {total, unresolved, by_type, most_contradicted_entities}
+            # Add resolved count for the UI
+            summary["resolved"] = summary.get("total", 0) - summary.get("unresolved", 0)
+            return web.json_response(summary)
+        except Exception as exc:
+            logger.error("diagnostics_contradiction_health error: %s", exc)
+            return web.json_response({"resolved": 0, "unresolved": 0, "total": 0, "by_type": {}, "most_contradicted_entities": [], "error": str(exc)}, status=200)
+
+    async def diagnostics_decision_memory(request: web.Request) -> web.Response:
+        """GET /api/diagnostics/decision-memory — open decisions + overconfidence profile."""
+        try:
+            import asyncio as _asyncio
+            from cato.memory.decision_memory import DecisionMemory
+            from cato.platform import get_data_dir
+            db_path = get_data_dir() / "default" / "decisions.db"
+            dm = DecisionMemory(db_path=db_path)
+            def _fetch():
+                try:
+                    open_recs = dm.list_open()
+                    # list_open returns list[DecisionRecord] dataclasses — convert to dicts
+                    open_decisions = [
+                        {
+                            "decision_id": r.decision_id,
+                            "action_taken": r.action_taken,
+                            "confidence": r.confidence_at_decision_time,
+                            "timestamp": r.timestamp,
+                        }
+                        for r in open_recs
+                    ]
+                    profile = dm.get_overconfidence_profile()
+                    return {"open_decisions": open_decisions, "overconfidence_profile": profile}
+                finally:
+                    dm.close()
+            loop = _asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _fetch)
+            return web.json_response(result)
+        except Exception as exc:
+            logger.error("diagnostics_decision_memory error: %s", exc)
+            return web.json_response({"open_decisions": [], "overconfidence_profile": {}, "error": str(exc)}, status=200)
+
+    async def diagnostics_anomaly_domains(request: web.Request) -> web.Response:
+        """GET /api/diagnostics/anomaly-domains — anomaly detector domain summaries."""
+        try:
+            import asyncio as _asyncio
+            from cato.monitoring.anomaly_detector import AnomalyDetector
+            from cato.platform import get_data_dir
+            db_path = get_data_dir() / "default" / "anomaly.db"
+            detector = AnomalyDetector(db_path=db_path)
+            def _fetch():
+                try:
+                    # list_domains returns list[Domain] dataclasses
+                    domain_list = detector.list_domains(active_only=False)
+                    domains = [
+                        {
+                            "domain": d.name,
+                            "description": d.description,
+                            "active": d.active,
+                        }
+                        for d in domain_list
+                    ]
+                    return {"domains": domains}
+                finally:
+                    detector.close()
+            loop = _asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _fetch)
+            return web.json_response(result)
+        except Exception as exc:
+            logger.error("diagnostics_anomaly_domains error: %s", exc)
+            return web.json_response({"domains": [], "error": str(exc)}, status=200)
+
+    async def diagnostics_skill_corrections(request: web.Request) -> web.Response:
+        """GET /api/diagnostics/skill-corrections — skill improvement cycle corrections."""
+        try:
+            import asyncio as _asyncio
+            from cato.core.memory import MemorySystem
+            from cato.platform import get_data_dir
+            memory_dir = get_data_dir() / "default"
+            ms = MemorySystem(agent_id="default", memory_dir=memory_dir)
+            def _fetch():
+                try:
+                    rows = ms._conn.execute(
+                        "SELECT id, task_type, wrong_approach, correct_approach, session_id, timestamp"
+                        " FROM corrections ORDER BY timestamp DESC LIMIT 20"
+                    ).fetchall()
+                    return [dict(r) for r in rows]
+                except Exception:
+                    return []
+                finally:
+                    ms._conn.close()
+            loop = _asyncio.get_running_loop()
+            corrections = await loop.run_in_executor(None, _fetch)
+            return web.json_response({"corrections": corrections})
+        except Exception as exc:
+            logger.error("diagnostics_skill_corrections error: %s", exc)
+            return web.json_response({"corrections": [], "error": str(exc)}, status=200)
+
+    # ------------------------------------------------------------------ #
     # Favicon                                                              #
     # ------------------------------------------------------------------ #
 
@@ -943,6 +1078,452 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
         except Exception as exc:
             logger.error("audit_download error: %s", exc)
             return web.Response(status=500)
+
+    # ------------------------------------------------------------------ #
+    # Catoflows                                                            #
+    # ------------------------------------------------------------------ #
+
+    async def list_flows(request: web.Request) -> web.Response:
+        """GET /api/flows — list installed flow definitions."""
+        try:
+            from cato.orchestrator.clawflows import FlowEngine
+            engine = FlowEngine()
+            flows = engine.list_flows()
+            return web.json_response(flows)
+        except Exception as exc:
+            logger.error("list_flows error: %s", exc)
+            return web.json_response([], status=500)
+
+    async def get_flow(request: web.Request) -> web.Response:
+        """GET /api/flows/{name} — get flow YAML content."""
+        name = request.match_info.get("name", "")
+        import re as _re
+        if not _re.match(r'^[a-zA-Z0-9_-]+$', name):
+            return web.json_response({"error": "invalid name"}, status=400)
+        try:
+            from cato.orchestrator.clawflows import FlowEngine, FLOWS_DIR
+            path = FLOWS_DIR / f"{name}.yaml"
+            if not path.exists():
+                return web.json_response({"error": "not found"}, status=404)
+            content = path.read_text(encoding="utf-8")
+            return web.json_response({"name": name, "content": content})
+        except Exception as exc:
+            logger.error("get_flow error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def create_flow(request: web.Request) -> web.Response:
+        """POST /api/flows — create or update a flow YAML. Body: {name, content}."""
+        try:
+            body = await request.json()
+            name = str(body.get("name", "")).strip()
+            content = str(body.get("content", "")).strip()
+            if not name or not content:
+                return web.json_response({"error": "name and content required"}, status=400)
+            # Sanitize name
+            import re
+            if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+                return web.json_response({"error": "invalid name"}, status=400)
+            from cato.orchestrator.clawflows import FLOWS_DIR
+            FLOWS_DIR.mkdir(parents=True, exist_ok=True)
+            path = FLOWS_DIR / f"{name}.yaml"
+            path.write_text(content, encoding="utf-8")
+            return web.json_response({"status": "ok", "name": name})
+        except Exception as exc:
+            logger.error("create_flow error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def delete_flow(request: web.Request) -> web.Response:
+        """DELETE /api/flows/{name} — delete a flow."""
+        name = request.match_info.get("name", "")
+        try:
+            from cato.orchestrator.clawflows import FLOWS_DIR
+            import re
+            if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+                return web.json_response({"error": "invalid name"}, status=400)
+            path = FLOWS_DIR / f"{name}.yaml"
+            if not path.exists():
+                return web.json_response({"error": "not found"}, status=404)
+            path.unlink()
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("delete_flow error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def run_flow_now(request: web.Request) -> web.Response:
+        """POST /api/flows/{name}/run — trigger a flow manually."""
+        name = request.match_info.get("name", "")
+        try:
+            from cato.orchestrator.clawflows import FlowEngine
+            import re
+            if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+                return web.json_response({"error": "invalid name"}, status=400)
+            engine = FlowEngine()
+            result = await engine.run_flow(name)
+            return web.json_response({
+                "status": result.status,
+                "flow_name": result.flow_name,
+                "step_outputs": result.step_outputs,
+                "error": result.error,
+            })
+        except FileNotFoundError:
+            return web.json_response({"error": "flow not found"}, status=404)
+        except Exception as exc:
+            logger.error("run_flow_now error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def list_flow_runs(request: web.Request) -> web.Response:
+        """GET /api/flows/{name}/runs — get run history for a flow."""
+        name = request.match_info.get("name", "")
+        try:
+            import asyncio as _asyncio
+            from cato.orchestrator.clawflows import FlowEngine
+            engine = FlowEngine()
+            def _fetch():
+                rows = engine._conn.execute(
+                    "SELECT id, flow_name, current_step, status, started_at, updated_at FROM flow_runs WHERE flow_name=? ORDER BY id DESC LIMIT 20",
+                    (name,)
+                ).fetchall()
+                return [dict(r) for r in rows]
+            loop = _asyncio.get_running_loop()
+            runs = await loop.run_in_executor(None, _fetch)
+            return web.json_response(runs)
+        except Exception as exc:
+            logger.error("list_flow_runs error: %s", exc)
+            return web.json_response([], status=500)
+
+    # ------------------------------------------------------------------ #
+    # Remote Nodes                                                         #
+    # ------------------------------------------------------------------ #
+
+    async def list_nodes(request: web.Request) -> web.Response:
+        """GET /api/nodes — list connected remote nodes."""
+        try:
+            if gateway is None:
+                return web.json_response([])
+            node_mgr = getattr(gateway, "_node_manager", None)
+            if node_mgr is None:
+                return web.json_response([])
+            nodes = []
+            for node_id, info in node_mgr._nodes.items():
+                nodes.append({
+                    "node_id": node_id,
+                    "name": info.name,
+                    "capabilities": info.capabilities,
+                    "registered_at": info.registered_at,
+                    "last_seen": info.last_seen,
+                    "stale": info.is_stale(),
+                })
+            return web.json_response(nodes)
+        except Exception as exc:
+            logger.error("list_nodes error: %s", exc)
+            return web.json_response([], status=500)
+
+    async def disconnect_node(request: web.Request) -> web.Response:
+        """DELETE /api/nodes/{node_id} — disconnect a remote node."""
+        node_id = request.match_info.get("node_id", "")
+        try:
+            if gateway is None:
+                return web.json_response({"error": "gateway unavailable"}, status=503)
+            node_mgr = getattr(gateway, "_node_manager", None)
+            if node_mgr is None:
+                return web.json_response({"error": "node manager unavailable"}, status=503)
+            node_mgr.remove(node_id)
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("disconnect_node error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Session Replay                                                        #
+    # ------------------------------------------------------------------ #
+
+    async def replay_session(request: web.Request) -> web.Response:
+        """POST /api/sessions/{session_id}/replay — dry-run replay of a session."""
+        session_id = request.match_info.get("session_id", "")
+        try:
+            import asyncio as _asyncio
+            from cato.audit.audit_log import AuditLog
+            from cato.replay import SessionReplayer
+            audit = AuditLog()
+            audit.connect()
+            replayer = SessionReplayer(audit)
+            def _run():
+                import asyncio as _a2
+                loop = _a2.new_event_loop()
+                try:
+                    return loop.run_until_complete(replayer.replay(session_id, live=False))
+                finally:
+                    loop.close()
+            loop = _asyncio.get_running_loop()
+            try:
+                report = await loop.run_in_executor(None, _run)
+            finally:
+                audit.close()
+            return web.json_response({
+                "session_id": report.session_id,
+                "mode": report.mode,
+                "total_steps": report.total_steps,
+                "matched": report.matched,
+                "mismatched": report.mismatched,
+                "skipped": report.skipped,
+                "elapsed_seconds": report.elapsed_seconds,
+                "steps": [
+                    {
+                        "index": s.index,
+                        "tool_name": s.tool_name,
+                        "matched": s.matched,
+                        "elapsed_ms": s.elapsed_ms,
+                    }
+                    for s in report.steps
+                ],
+            })
+        except Exception as exc:
+            logger.error("replay_session error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Session Checkpoints & Receipt                                        #
+    # ------------------------------------------------------------------ #
+
+    _SESS_ID_RE = __import__("re").compile(r'^[a-zA-Z0-9_-]+$')
+
+    async def list_session_checkpoints(request: web.Request) -> web.Response:
+        """GET /api/sessions/{session_id}/checkpoints — list all checkpoints for a session."""
+        session_id = request.match_info.get("session_id", "")
+        if not _SESS_ID_RE.match(session_id):
+            return web.json_response({"error": "invalid session_id"}, status=400)
+        try:
+            import asyncio as _asyncio
+            from cato.core.session_checkpoint import SessionCheckpoint
+            from cato.platform import get_data_dir
+            db_path = get_data_dir() / "cato.db"
+
+            def _fetch() -> list:
+                if not db_path.exists():
+                    return []
+                ckpt = SessionCheckpoint(db_path=db_path)
+                try:
+                    row = ckpt.get(session_id)
+                    if row is None:
+                        return []
+                    return [{
+                        "checkpoint_id": row["session_id"],
+                        "task_description": row.get("task_description", ""),
+                        "token_count": row.get("token_count", 0),
+                        "timestamp": row.get("checkpoint_at", ""),
+                        "current_plan": row.get("current_plan", ""),
+                        "decisions_made": row.get("decisions_made", []),
+                        "files_modified": row.get("files_modified", []),
+                    }]
+                finally:
+                    ckpt.close()
+
+            loop = _asyncio.get_running_loop()
+            checkpoints = await loop.run_in_executor(None, _fetch)
+            return web.json_response(checkpoints)
+        except Exception as exc:
+            logger.error("list_session_checkpoints error: %s", exc)
+            return web.json_response([], status=500)
+
+    async def get_session_checkpoint(request: web.Request) -> web.Response:
+        """GET /api/sessions/{session_id}/checkpoints/{cid} — single checkpoint summary."""
+        session_id = request.match_info.get("session_id", "")
+        cid = request.match_info.get("cid", "")
+        if not _SESS_ID_RE.match(session_id):
+            return web.json_response({"error": "invalid session_id"}, status=400)
+        if not _SESS_ID_RE.match(cid):
+            return web.json_response({"error": "invalid checkpoint_id"}, status=400)
+        # cid must match the session_id stored (one checkpoint per session in current schema)
+        if cid != session_id:
+            return web.json_response({"error": "checkpoint not found"}, status=404)
+        try:
+            import asyncio as _asyncio
+            from cato.core.session_checkpoint import SessionCheckpoint
+            from cato.platform import get_data_dir
+            db_path = get_data_dir() / "cato.db"
+
+            def _fetch() -> dict:
+                if not db_path.exists():
+                    return {}
+                ckpt = SessionCheckpoint(db_path=db_path)
+                try:
+                    summary = ckpt.get_summary(session_id)
+                    row = ckpt.get(session_id)
+                    if row is None:
+                        return {}
+                    return {
+                        "checkpoint_id": session_id,
+                        "task_description": row.get("task_description", ""),
+                        "token_count": row.get("token_count", 0),
+                        "timestamp": row.get("checkpoint_at", ""),
+                        "summary": summary,
+                    }
+                finally:
+                    ckpt.close()
+
+            loop = _asyncio.get_running_loop()
+            data = await loop.run_in_executor(None, _fetch)
+            if not data:
+                return web.json_response({"error": "checkpoint not found"}, status=404)
+            return web.json_response(data)
+        except Exception as exc:
+            logger.error("get_session_checkpoint error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def session_receipt(request: web.Request) -> web.Response:
+        """GET /api/sessions/{session_id}/receipt — signed cost receipt for a session."""
+        session_id = request.match_info.get("session_id", "")
+        if not _SESS_ID_RE.match(session_id):
+            return web.json_response({"error": "invalid session_id"}, status=400)
+        try:
+            import asyncio as _asyncio
+            from cato.audit.audit_log import AuditLog
+            from cato.receipt import ReceiptWriter
+
+            def _generate() -> dict:
+                audit = AuditLog()
+                audit.connect()
+                try:
+                    writer = ReceiptWriter()
+                    receipt = writer.generate(session_id, audit)
+                    return {
+                        "session_id": receipt.session_id,
+                        "total_cents": receipt.total_cents,
+                        "total_usd": round(receipt.total_cents / 100, 4),
+                        "action_count": len(receipt.actions),
+                        "error_count": receipt.error_count,
+                        "signed_hash": receipt.signed_hash,
+                        "generated_at": receipt.generated_at,
+                        "start_ts": receipt.start_ts,
+                        "end_ts": receipt.end_ts,
+                        "actions": [
+                            {
+                                "index": a.index,
+                                "tool_name": a.tool_name,
+                                "action_type": a.action_type,
+                                "cost_cents": a.cost_cents,
+                                "timestamp": a.timestamp,
+                                "row_hash": a.row_hash,
+                                "error": a.error,
+                            }
+                            for a in receipt.actions
+                        ],
+                    }
+                finally:
+                    audit.close()
+
+            loop = _asyncio.get_running_loop()
+            data = await loop.run_in_executor(None, _generate)
+            return web.json_response(data)
+        except Exception as exc:
+            logger.error("session_receipt error: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Adapters status                                                      #
+    # ------------------------------------------------------------------ #
+
+    async def list_adapters(request: web.Request) -> web.Response:
+        """GET /api/adapters — list channel adapters and their status."""
+        try:
+            adapters_info = []
+
+            # Check adapter status via gateway._adapters if gateway is available
+            if gateway is not None:
+                gateway_adapters = getattr(gateway, "_adapters", [])
+                seen_names: set[str] = set()
+                for adapter in gateway_adapters:
+                    name = getattr(adapter, "channel_name", type(adapter).__name__.lower())
+                    running = getattr(adapter, "running", False)
+                    status = "connected" if running else "disconnected"
+                    details: dict = {}
+                    seen_names.add(name)
+                    adapters_info.append({"name": name, "status": status, "details": details})
+
+                # Surface known adapters that are not currently loaded
+                for known_name in ("telegram", "whatsapp"):
+                    if known_name not in seen_names:
+                        adapters_info.append({"name": known_name, "status": "not_configured", "details": {}})
+            else:
+                # No gateway — attempt a lightweight import check
+                for adapter_name, module_path in [
+                    ("telegram", "cato.adapters.telegram"),
+                    ("whatsapp", "cato.adapters.whatsapp"),
+                ]:
+                    try:
+                        import importlib
+                        importlib.import_module(module_path)
+                        adapters_info.append({"name": adapter_name, "status": "not_configured", "details": {}})
+                    except ImportError:
+                        adapters_info.append({"name": adapter_name, "status": "not_configured", "details": {}})
+
+            return web.json_response({"adapters": adapters_info})
+        except Exception as exc:
+            logger.error("list_adapters error: %s", exc)
+            return web.json_response({"adapters": []}, status=500)
+
+    # ------------------------------------------------------------------ #
+    # Heartbeat status                                                     #
+    # ------------------------------------------------------------------ #
+
+    async def get_heartbeat(request: web.Request) -> web.Response:
+        """GET /api/heartbeat — return HeartbeatMonitor state."""
+        try:
+            import datetime as _dt
+
+            monitor = None
+            if gateway is not None:
+                monitor = getattr(gateway, "_heartbeat_monitor", None)
+
+            if monitor is None:
+                return web.json_response({
+                    "last_heartbeat": None,
+                    "agent_name": None,
+                    "uptime_seconds": None,
+                    "status": "unknown",
+                })
+
+            # HeartbeatMonitor tracks _last_fire per agent name
+            last_fire: dict[str, float] = getattr(monitor, "_last_fire", {})
+
+            if not last_fire:
+                return web.json_response({
+                    "last_heartbeat": None,
+                    "agent_name": None,
+                    "uptime_seconds": None,
+                    "status": "unknown",
+                })
+
+            # Use the most recently fired agent
+            agent_name, last_ts = max(last_fire.items(), key=lambda kv: kv[1])
+            now = time.monotonic()
+            # Compute elapsed since last heartbeat fire (monotonic seconds)
+            elapsed = now - last_ts
+            # Stale threshold: 2 × default interval (10 minutes)
+            stale_threshold = 600
+            status = "alive" if elapsed < stale_threshold else "stale"
+
+            # Convert monotonic timestamp to wall-clock ISO string (approximate)
+            wall_now = _dt.datetime.now(_dt.timezone.utc)
+            last_heartbeat_wall = wall_now - _dt.timedelta(seconds=elapsed)
+            last_heartbeat_iso = last_heartbeat_wall.isoformat()
+
+            uptime_seconds = now - _START_TIME
+
+            return web.json_response({
+                "last_heartbeat": last_heartbeat_iso,
+                "agent_name": agent_name,
+                "uptime_seconds": round(uptime_seconds, 1),
+                "status": status,
+            })
+        except Exception as exc:
+            logger.error("get_heartbeat error: %s", exc)
+            return web.json_response({
+                "last_heartbeat": None,
+                "agent_name": None,
+                "uptime_seconds": None,
+                "status": "unknown",
+            }, status=500)
 
     # ------------------------------------------------------------------ #
     # Coding Agent routes                                                  #
@@ -1011,6 +1592,32 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/api/action-guard/status",       action_guard_status)
     # Daemon
     app.router.add_post("/api/daemon/restart",           daemon_restart)
+    # Flows (Catoflows)
+    app.router.add_get("/api/flows",                    list_flows)
+    app.router.add_post("/api/flows",                   create_flow)
+    app.router.add_get("/api/flows/{name}",             get_flow)
+    app.router.add_delete("/api/flows/{name}",          delete_flow)
+    app.router.add_post("/api/flows/{name}/run",        run_flow_now)
+    app.router.add_get("/api/flows/{name}/runs",        list_flow_runs)
+    # Diagnostics
+    app.router.add_get("/api/diagnostics/query-classifier",      diagnostics_query_classifier)
+    app.router.add_get("/api/diagnostics/contradiction-health",  diagnostics_contradiction_health)
+    app.router.add_get("/api/diagnostics/decision-memory",       diagnostics_decision_memory)
+    app.router.add_get("/api/diagnostics/anomaly-domains",       diagnostics_anomaly_domains)
+    app.router.add_get("/api/diagnostics/skill-corrections",     diagnostics_skill_corrections)
+    # Adapters
+    app.router.add_get("/api/adapters",                 list_adapters)
+    # Heartbeat
+    app.router.add_get("/api/heartbeat",                get_heartbeat)
+    # Nodes
+    app.router.add_get("/api/nodes",                    list_nodes)
+    app.router.add_delete("/api/nodes/{node_id}",       disconnect_node)
+    # Replay
+    app.router.add_post("/api/sessions/{session_id}/replay", replay_session)
+    # Session Checkpoints & Receipt
+    app.router.add_get("/api/sessions/{session_id}/checkpoints",       list_session_checkpoints)
+    app.router.add_get("/api/sessions/{session_id}/checkpoints/{cid}", get_session_checkpoint)
+    app.router.add_get("/api/sessions/{session_id}/receipt",           session_receipt)
 
     # Coding agent UI routes
     app.router.add_get("/coding-agent",           serve_coding_agent)

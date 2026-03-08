@@ -19,9 +19,12 @@ export const SkillsView: React.FC<SkillsViewProps> = ({ httpPort }) => {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<string>("");
+  const [originalContent, setOriginalContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -46,10 +49,37 @@ export const SkillsView: React.FC<SkillsViewProps> = ({ httpPort }) => {
       const r = await fetch(`${base}/api/skills/${encodeURIComponent(dir)}/content`);
       const data = await r.json();
       setContent(data.content ?? "");
+      setOriginalContent(data.content ?? "");
     } catch (e) {
       setContent(`Error loading: ${e}`);
     } finally {
       setContentLoading(false);
+    }
+  };
+
+  const isDirty = content !== originalContent;
+
+  const saveSkill = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${base}/api/skills/${encodeURIComponent(selected)}/content`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      const d = await r.json();
+      if (d.status === "ok") {
+        setOriginalContent(content);
+        setSaveMsg("Saved successfully");
+      } else {
+        setSaveMsg(`Error: ${d.error ?? "Save failed"}`);
+      }
+    } catch (e) {
+      setSaveMsg(`Error: ${e}`);
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(null), 3000);
     }
   };
 
@@ -88,7 +118,21 @@ export const SkillsView: React.FC<SkillsViewProps> = ({ httpPort }) => {
           <div className="skills-detail">
             <div className="skills-detail-header">
               <span className="skills-detail-title">{selected}</span>
-              <button className="btn-secondary-sm" onClick={() => setSelected(null)}>Close</button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {saveMsg && (
+                  <span style={{ fontSize: 12, color: saveMsg.startsWith("Error") ? "#ef4444" : "#22c55e" }}>
+                    {saveMsg}
+                  </span>
+                )}
+                <button
+                  className="btn-primary btn-sm"
+                  onClick={saveSkill}
+                  disabled={!isDirty || saving}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button className="btn-secondary-sm" onClick={() => { setSelected(null); setOriginalContent(""); }}>Close</button>
+              </div>
             </div>
             {contentLoading ? (
               <div className="view-loading"><div className="app-loading-spinner" /></div>

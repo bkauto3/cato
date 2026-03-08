@@ -17,11 +17,16 @@ export type View =
   | "usage"
   | "logs"
   | "audit"
+  | "memory"
   | "config"
   | "budget"
   | "alerts"
   | "auth-keys"
-  | "identity";
+  | "identity"
+  | "flows"
+  | "nodes"
+  | "system"
+  | "diagnostics";
 
 interface NavItem {
   id: View;
@@ -48,20 +53,25 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "skills", label: "Skills",    icon: "🧩" },
       { id: "cron",   label: "Cron Jobs", icon: "⏱" },
+      { id: "flows",  label: "Flows",     icon: "⚡" },
     ],
   },
   {
     label: "Monitoring",
     items: [
-      { id: "sessions", label: "Sessions",  icon: "👥" },
-      { id: "usage",    label: "Usage",     icon: "📊" },
-      { id: "logs",     label: "Logs",      icon: "📄" },
-      { id: "audit",    label: "Audit Log", icon: "🛡" },
+      { id: "sessions", label: "Sessions",     icon: "👥" },
+      { id: "nodes",    label: "Remote Nodes", icon: "🖥" },
+      { id: "memory",   label: "Memory",       icon: "🧠" },
+      { id: "usage",    label: "Usage",        icon: "📊" },
+      { id: "logs",        label: "Logs",        icon: "📄" },
+      { id: "audit",       label: "Audit Log",   icon: "🛡" },
+      { id: "diagnostics", label: "Diagnostics", icon: "🔬" },
     ],
   },
   {
     label: "Settings",
     items: [
+      { id: "system",    label: "System",     icon: "⚙️" },
       { id: "identity",  label: "Identity",   icon: "🪪" },
       { id: "config",    label: "Config",     icon: "⚙" },
       { id: "budget",    label: "Budget",     icon: "$" },

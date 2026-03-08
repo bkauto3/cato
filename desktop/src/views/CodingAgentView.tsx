@@ -11,6 +11,7 @@ import { ConfidenceBadge } from "../components/ConfidenceBadge";
 import { ModelSettings } from "../components/ModelSettings";
 import { useTalkPageStream } from "../hooks/useTalkPageStream";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import logoSrc from "../assets/cato-logo.png";
 
 interface CodingAgentViewProps {
   wsBase?: string;
@@ -171,7 +172,9 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
     return (
       <div className="coding-entry">
         <div className="coding-entry-card">
-          <div className="coding-entry-icon">C</div>
+          <div className="coding-entry-icon">
+              <img src={logoSrc} alt="Cato" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: "12px" }} />
+            </div>
           <h1 className="coding-entry-title">Cato Coding Agent</h1>
           <p className="coding-entry-subtitle">
             Submit a task to Codex, Cursor, Claude, and Gemini

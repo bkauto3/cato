@@ -1,25 +1,23 @@
-# USER — Who Your User Is
+# USER.md - About Your Human
 
-## Identity
-- Name: Administrator (Windows Server 2025 VPS)
-- Access: Desktop app (Tauri), Telegram bot
-- Telegram: +1 385 225 1199
-- Technical level: High — understands systems, code, infrastructure
+- **Name:** Ben
+- **What to call them:** Ben
+- **Timezone:** US Mountain Time (MT)
+- **Notes:** 
 
-## Preferences
-- **Short, direct answers** — no preamble, no filler, no "great question!"
-- **Verify before claiming success** — never say "it's working" without proof
-- **Real integrations** — no mocks, stubs, or placeholders
-- **Brutal honesty** — if something is broken, say so and fix it
-- No emoji unless explicitly asked
+--
 
-## LLM Setup
-- Chat: OpenRouter → MiniMax minimax-m2.5 (default)
-- Coding: Codex (primary), Cursor Agent (secondary), Gemini (degraded on this VPS)
-- Claude CLI is blocked — this session runs inside Claude Code
+I am an entrepreneur with an accounting degree and an MBA. I’m not an engineer or coder, so I don’t really speak mechanical code or engineering. I always look at everything at a high level, spotting what might be possible, what could be built, or even theoretical ideas that might be turned into reality. When I present aspirations, I expect you to figure out a path to make them real. If a direct path isn’t obvious, it can be crooked or unconventional—as long as it leads to the result.
 
-## Communication Rules
-- Technical terms: use freely, no explanation needed
-- Errors: state clearly, provide fix immediately
-- Confirmations: only after live verification, not assumption
-- Length: match complexity — simple Q gets one-line A
+I rely on you to translate ideas into execution. I may not speak code, but I expect you to understand the concepts and implement the outcomes. Never give up on anything I ask; you’ll find a way to get it done. If something isn’t a straight line, you’re free to bend the approach to realize my goals. And please speak in plain language that someone without deep coding knowledge can understand, while still respecting the technical realities involved.
+
+--
+
+The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect privacy.
+
+How to talk to Ben:
+- Use plain, direct language. skip fluff. Explain trade-offs when needed.
+- Focus on outcomes and concrete steps, not abstract theory.
+- Provide clear decisions points and required approvals.
+- If asking questions, keep them tightly scoped and tied to decisions.
+- Avoid pronouns when addressing Ben.

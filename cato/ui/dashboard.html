@@ -456,6 +456,15 @@ textarea.form-input{resize:vertical;min-height:80px}
         <div class="nav-item" data-page="alerts" onclick="navigate('alerts')"><span class="nav-item-icon">&#128276;</span>Alerts <span id="alert-badge" style="margin-left:4px;display:none" class="badge badge-red">0</span></div>
       </div>
 
+      <div class="nav-group-header" onclick="toggleGroup('system')">
+        <span>System</span>
+        <span class="nav-group-arrow open" id="arrow-system">&#9660;</span>
+      </div>
+      <div id="group-system">
+        <div class="nav-item" data-page="system" onclick="navigate('system')"><span class="nav-item-icon">&#128736;</span>System</div>
+        <div class="nav-item" data-page="diagnostics" onclick="navigate('diagnostics')"><span class="nav-item-icon">&#128300;</span>Diagnostics</div>
+      </div>
+
       <div class="nav-group-header" onclick="toggleGroup('settings')">
         <span>Settings</span>
         <span class="nav-group-arrow open" id="arrow-settings">&#9660;</span>
@@ -893,6 +902,16 @@ textarea.form-input{resize:vertical;min-height:80px}
           <div class="card-title">Model Distribution</div>
           <div id="dash-model-bars"><div style="color:#4b5563;font-size:13px">No data — connect daemon to see model usage.</div></div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:0">
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title">Heartbeat</div>
+            <div id="dash-heartbeat-body"><div style="color:#4b5563;font-size:12px">Loading...</div></div>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title">Adapters</div>
+            <div id="dash-adapters-body"><div style="color:#4b5563;font-size:12px">Loading...</div></div>
+          </div>
+        </div>
       </div>
 
       <!-- Vault (CHUNK 2) -->
@@ -931,8 +950,48 @@ textarea.form-input{resize:vertical;min-height:80px}
         </div>
       </div>
 
+      <!-- System (CHUNK 8) -->
+      <div id="system-page" class="page">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">CLI Pool Status</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:14px">Warm/cold state of each model CLI process pool.</div>
+          <div id="system-cli-pool"><div style="color:#4b5563;font-size:13px">Loading CLI pool status...</div></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Action Guard — 3-Rule Gate</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Pre-execution safety gate that enforces autonomy constraints before every tool call.</div>
+          <div id="system-action-guard"><div style="color:#4b5563;font-size:12px">Loading...</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Daemon Control</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Restart the Cato daemon process. Active connections will briefly drop and reconnect.</div>
+          <button class="btn btn-danger" onclick="confirmDaemonRestart()">&#9863; Restart Daemon</button>
+        </div>
+      </div>
+
+      <!-- Diagnostics (CHUNK 8) -->
+      <div id="diagnostics-page" class="page">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Query Tier Decisions</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Recent routing decisions showing which tier (A/B/C) was selected per query.</div>
+          <div id="diag-query-tiers"><div style="color:#4b5563;font-size:12px">Loading...</div></div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="loadQueryTiers()">Refresh</button>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Contradiction Health</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Memory contradiction detector health summary — counts open vs. resolved contradictions.</div>
+          <div id="diag-contradiction-health"><div style="color:#4b5563;font-size:12px">Loading...</div></div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="loadContradictionHealth()">Refresh</button>
+        </div>
+        <div class="card">
+          <div class="card-title">Open Decision Memory</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">Decisions tracked by the decision memory system that are still open (no recorded outcome).</div>
+          <div id="diag-decision-memory"><div style="color:#4b5563;font-size:12px">Loading...</div></div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="loadDecisionMemory()">Refresh</button>
+        </div>
+      </div>
+
       <!-- Alerts -->
-      <div id="alerts-page" class="page">
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
           <span style="color:#94a3b8;font-size:13px;flex:1" id="alerts-count">0 notifications</span>
           <div style="display:flex;gap:6px">
@@ -1200,6 +1259,7 @@ const PAGE_TITLES = {
   dashboard:'Dashboard', chat:'Chat', agents:'Agents', skills:'Skills', cron:'Cron', sessions:'Sessions',
   usage:'Usage', audit:'Audit Log', memory:'Memory Browser', logs:'Logs', alerts:'Alerts',
   config:'Config', budget:'Budget', conduit:'Conduit — Search Providers', vault:'Vault & Auth',
+  system:'System', diagnostics:'Diagnostics',
 };
 
 function navigate(page) {
@@ -1236,6 +1296,8 @@ function onPageEnter(page) {
   if (page === 'conduit')  renderConduitPage();
   if (page === 'alerts')   renderAlerts();
   if (page === 'vault')    renderVaultPage();
+  if (page === 'system')   { loadSystemCliPool(); loadSystemActionGuard(); }
+  if (page === 'diagnostics') { loadQueryTiers(); loadContradictionHealth(); loadDecisionMemory(); }
 }
 
 function toggleGroup(name) {
@@ -2403,6 +2465,8 @@ let _dashRefreshInterval = null;
 
 async function renderDashboard() {
   await Promise.all([fetchDashboardMetrics(), fetchDashboardUsage()]);
+  loadDashHeartbeat();
+  loadDashAdapters();
   const ts = document.getElementById('dash-refresh-ts');
   if (ts) ts.textContent = 'Last updated: ' + new Date().toLocaleTimeString();
 }
@@ -3226,6 +3290,244 @@ function esc(str) {
   return String(str)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function formatUptime(seconds) {
+  if (seconds == null || isNaN(seconds)) return '—';
+  const s = Math.floor(seconds);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s % 60}s`;
+}
+
+// ── CHUNK 8: Dashboard Heartbeat + Adapters ────────────────────────
+
+async function loadDashHeartbeat() {
+  const el = document.getElementById('dash-heartbeat-body');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/heartbeat');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const uptime = d.uptime_seconds != null ? formatUptime(d.uptime_seconds) : '—';
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge ${d.status === 'ok' ? 'badge-green' : 'badge-red'}">${esc(d.status || '?')}</span>
+        <span style="font-size:12px;color:#94a3b8">${esc(d.agent_name || 'cato')}</span>
+      </div>
+      <div style="font-size:11px;color:#4b5563">Uptime: <span style="color:#94a3b8">${uptime}</span></div>
+      ${d.version ? `<div style="font-size:11px;color:#4b5563">Version: <span style="color:#94a3b8">${esc(d.version)}</span></div>` : ''}
+    </div>`;
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Heartbeat unavailable — daemon offline.</div>';
+  }
+}
+
+async function loadDashAdapters() {
+  const el = document.getElementById('dash-adapters-body');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/adapters');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const adapters = Array.isArray(d) ? d : (d.adapters || Object.entries(d).map(([k,v]) => ({name:k,...(typeof v==='object'?v:{status:v})})));
+    if (!adapters.length) {
+      el.innerHTML = '<div style="color:#4b5563;font-size:12px">No adapters registered.</div>';
+      return;
+    }
+    el.innerHTML = adapters.map(a => {
+      const status = a.status || a.state || 'unknown';
+      const cls = status === 'active' || status === 'ok' || status === 'connected' ? 'badge-green' : status === 'error' || status === 'failed' ? 'badge-red' : 'badge-gray';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0f111744">
+        <span style="font-size:12px;color:#e2e8f0;flex:1">${esc(a.name || a.id || '?')}</span>
+        <span class="badge ${cls}">${esc(status)}</span>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Adapters unavailable.</div>';
+  }
+}
+
+// ── CHUNK 8: System Page ───────────────────────────────────────────
+
+async function loadSystemCliPool() {
+  const el = document.getElementById('system-cli-pool');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/cli/status');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const models = d.models || d.pool || d;
+    const entries = Array.isArray(models) ? models : Object.entries(models).map(([k,v]) => ({model:k,...(typeof v==='object'?v:{status:v})}));
+    if (!entries.length) {
+      el.innerHTML = '<div style="color:#4b5563;font-size:13px">No CLI pool data available.</div>';
+      return;
+    }
+    el.innerHTML = entries.map(m => {
+      const status = m.status || m.state || 'unknown';
+      const warm = status === 'warm';
+      const cold = status === 'cold';
+      const cls = warm ? 'badge-green' : cold ? 'badge-yellow' : 'badge-gray';
+      const icon = m.model === 'claude' ? '&#129302;' : m.model === 'codex' ? '&#128187;' : m.model === 'gemini' ? '&#127381;' : m.model === 'cursor' ? '&#9654;' : '&#128296;';
+      return `<div class="cli-status-row">
+        <span class="cli-logo">${icon}</span>
+        <div class="cli-info">
+          <div class="cli-name">${esc(m.model || m.name || '?')}</div>
+          ${m.version ? `<div class="cli-version">${esc(m.version)}</div>` : ''}
+          <div class="cli-badges">
+            <span class="badge ${cls}">${esc(status)}</span>
+            ${m.pool_size != null ? `<span class="badge badge-gray">${m.pool_size} workers</span>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:13px">CLI pool status unavailable — daemon may be offline.</div>';
+  }
+}
+
+async function loadSystemActionGuard() {
+  const el = document.getElementById('system-action-guard');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/action-guard/status');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const checks = d.checks || [];
+    const autonomy = d.autonomy_level != null ? d.autonomy_level : null;
+    let html = '';
+    if (autonomy !== null) {
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:12px;color:#94a3b8">Autonomy level:</span>
+        <span class="badge ${autonomy >= 0.7 ? 'badge-green' : autonomy >= 0.4 ? 'badge-yellow' : 'badge-red'}">${(autonomy * 100).toFixed(0)}%</span>
+      </div>`;
+    }
+    html += checks.map(c => `<div class="action-guard-rule">
+      <span class="action-guard-icon">${c.active ? '&#10004;' : '&#10006;'}</span>
+      <div>
+        <div class="action-guard-title">${esc(c.rule)}</div>
+        <div class="action-guard-desc">${esc(c.description || '')}</div>
+      </div>
+      <span class="badge ${c.active ? 'badge-green' : 'badge-gray'}" style="margin-left:auto">${c.active ? 'Active' : 'Inactive'}</span>
+    </div>`).join('');
+    el.innerHTML = html || '<div style="color:#4b5563;font-size:12px">No guard rules configured.</div>';
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Action Guard status unavailable.</div>';
+  }
+}
+
+function confirmDaemonRestart() {
+  if (!confirm('Restart the Cato daemon? Active connections will drop briefly and reconnect.')) return;
+  fetch('/api/daemon/restart', { method: 'POST' })
+    .then(r => {
+      if (r.ok) {
+        appendAlert('info', 'Daemon restart scheduled. Reconnecting...');
+        setTimeout(connectWS, 3000);
+      } else {
+        appendAlert('error', 'Restart failed: ' + r.status);
+      }
+    })
+    .catch(() => {
+      appendAlert('error', 'Restart request failed — daemon may already be restarting.');
+      setTimeout(connectWS, 5000);
+    });
+}
+
+// ── CHUNK 8: Diagnostics Page ──────────────────────────────────────
+
+async function loadQueryTiers() {
+  const el = document.getElementById('diag-query-tiers');
+  if (!el) return;
+  el.innerHTML = '<div style="color:#4b5563;font-size:12px">Loading...</div>';
+  try {
+    const r = await fetch('/api/diagnostics/query-classifier');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const entries = d.recent || d.decisions || d || [];
+    if (!Array.isArray(entries) || !entries.length) {
+      el.innerHTML = '<div style="color:#4b5563;font-size:12px">No recent tier decisions.</div>';
+      return;
+    }
+    el.innerHTML = `<table class="table"><thead><tr><th>Query</th><th>Tier</th><th>Reason</th><th>Time</th></tr></thead><tbody>` +
+      entries.map(e => {
+        const tierCls = e.tier === 'A' ? 'badge-green' : e.tier === 'B' ? 'badge-yellow' : 'badge-blue';
+        const ts = e.timestamp ? new Date(e.timestamp * 1000 || e.timestamp).toLocaleTimeString() : '?';
+        return `<tr>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(e.query||e.text||'?').slice(0,80))}</td>
+          <td><span class="badge ${tierCls}">Tier ${esc(e.tier||'?')}</span></td>
+          <td style="color:#64748b;font-size:11px">${esc(e.reason||e.classification||'')}</td>
+          <td style="color:#374151;font-size:11px">${ts}</td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Query classifier data unavailable.</div>';
+  }
+}
+
+async function loadContradictionHealth() {
+  const el = document.getElementById('diag-contradiction-health');
+  if (!el) return;
+  el.innerHTML = '<div style="color:#4b5563;font-size:12px">Loading...</div>';
+  try {
+    const r = await fetch('/api/diagnostics/contradiction-health');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">
+      <div class="budget-stat-card">
+        <div class="budget-stat-label">Total</div>
+        <div class="budget-stat-value">${d.total != null ? d.total : '—'}</div>
+        <div class="budget-stat-sub">contradictions</div>
+      </div>
+      <div class="budget-stat-card">
+        <div class="budget-stat-label">Open</div>
+        <div class="budget-stat-value" style="color:${(d.open||0)>0?'#f87171':'#22c55e'}">${d.open != null ? d.open : '—'}</div>
+        <div class="budget-stat-sub">unresolved</div>
+      </div>
+      <div class="budget-stat-card">
+        <div class="budget-stat-label">Resolved</div>
+        <div class="budget-stat-value" style="color:#22c55e">${d.resolved != null ? d.resolved : '—'}</div>
+        <div class="budget-stat-sub">resolved</div>
+      </div>
+      <div class="budget-stat-card">
+        <div class="budget-stat-label">Health</div>
+        <div class="budget-stat-value" style="font-size:14px">${esc(d.health || d.status || 'ok')}</div>
+        <div class="budget-stat-sub">overall</div>
+      </div>
+    </div>`;
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Contradiction health unavailable.</div>';
+  }
+}
+
+async function loadDecisionMemory() {
+  const el = document.getElementById('diag-decision-memory');
+  if (!el) return;
+  el.innerHTML = '<div style="color:#4b5563;font-size:12px">Loading...</div>';
+  try {
+    const r = await fetch('/api/diagnostics/decision-memory');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const decisions = d.open || d.decisions || d || [];
+    if (!Array.isArray(decisions) || !decisions.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#9989;</div><p>No open decisions — all outcomes recorded.</p></div>';
+      return;
+    }
+    el.innerHTML = decisions.map(dec => {
+      const ts = dec.timestamp ? new Date(dec.timestamp * 1000 || dec.timestamp).toLocaleString() : '?';
+      return `<div class="notification">
+        <div class="notif-icon">&#128203;</div>
+        <div class="notif-body">
+          <div class="notif-msg">${esc(dec.decision || dec.text || dec.description || '?')}</div>
+          <div class="notif-time">${ts} &bull; <span class="tag">${esc(dec.context || dec.session_id || 'unknown context')}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px">Decision memory unavailable.</div>';
+  }
 }
 
 // ── Health polling ────────────────────────────────────────────────

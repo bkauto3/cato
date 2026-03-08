@@ -46,8 +46,9 @@ export const IdentityView: React.FC<IdentityViewProps> = ({ httpPort }) => {
     try {
       const r = await fetch(`${base}/api/workspace/file?name=${encodeURIComponent(name)}`);
       const data = await r.json() as { name: string; content: string };
-      setContent(data.content);
-      setOriginalContent(data.content);
+      const fileContent = data.content ?? "";
+      setContent(fileContent);
+      setOriginalContent(fileContent);
     } catch {
       setContent("");
       setOriginalContent("");
@@ -99,8 +100,9 @@ export const IdentityView: React.FC<IdentityViewProps> = ({ httpPort }) => {
             className="btn-primary"
             onClick={save}
             disabled={saving || !isDirty}
+            title={!isDirty ? "No unsaved changes" : "Save changes"}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
           </button>
         </div>
       </div>

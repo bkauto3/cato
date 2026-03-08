@@ -1048,7 +1048,10 @@ function CodingAgentPage({ taskId, initialTask="" }) {
       {/* Left sidebar */}
       <aside className="sidebar-left" aria-label="Task details" data-testid="left-sidebar">
         <div className="sidebar-hdr">
-          <span>Task</span>
+          <span style={{display:"flex",alignItems:"center",gap:"6px"}}>
+            <img src="/logo-32.png" alt="Cato" style={{width:"20px",height:"20px",borderRadius:"4px",objectFit:"contain"}} onError={e=>{e.target.style.display="none"}}/>
+            <span style={{color:"#3b82f6",fontWeight:"700",fontSize:"12px"}}>Cato</span>
+          </span>
           <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
             {isLoading && <span style={{color:"#60a5fa",fontSize:"10px"}} role="status" aria-live="polite" data-testid="loading-status">Running...</span>}
             <button className="settings-gear-btn" onClick={() => setShowSettings(s => !s)} aria-label="Model settings" title="Model settings">⚙</button>

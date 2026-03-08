@@ -656,13 +656,11 @@ body {
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #3b82f6, #a855f7);
-  color: white;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  font-weight: 800;
+  overflow: hidden;
 }
 
 .coding-entry-title {
@@ -821,6 +819,20 @@ body {
   white-space: nowrap;
 }
 .btn-secondary-sm:hover { background: #334155; color: var(--text-primary); }
+
+.btn-primary.btn-sm {
+  background: #3b82f6;
+  color: #fff;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.btn-primary.btn-sm:hover:not(:disabled) { background: #2563eb; }
+.btn-primary.btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-danger-sm {
   background: #7f1d1d33;
@@ -1411,6 +1423,13 @@ body {
   overflow-y: auto;
 }
 
+.tab-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
 .tab-btn {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -1419,11 +1438,43 @@ body {
   padding: 5px 12px;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
+.tab-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+.tab-btn.active,
 .tab-btn-active {
   background: #3b82f620;
   border-color: #3b82f6;
   color: #93c5fd;
+}
+
+/* ── Memory View ──────────────────────────────────────────── */
+.memory-fact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.memory-fact-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.memory-fact-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  gap: 6px;
+}
+.memory-fact-content {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ── Retry button (global) ────────────────────────────────── */

@@ -23,6 +23,11 @@ import { BudgetView } from "./views/BudgetView";
 import { AlertsView } from "./views/AlertsView";
 import { AuthKeysView } from "./views/AuthKeysView";
 import { IdentityView } from "./views/IdentityView";
+import { FlowsView } from "./views/FlowsView";
+import { NodesView } from "./views/NodesView";
+import { SystemView } from "./views/SystemView";
+import { MemoryView } from "./views/MemoryView";
+import { DiagnosticsView } from "./views/DiagnosticsView";
 import "./styles/app.css";
 
 type DaemonStatus = "starting" | "ready" | "stopped" | "error";
@@ -110,6 +115,16 @@ function renderView(view: View, daemon: DaemonInfo, onNavigate: (v: View) => voi
       return <AuthKeysView httpPort={httpPort} />;
     case "identity":
       return <IdentityView httpPort={httpPort} />;
+    case "flows":
+      return <FlowsView httpPort={httpPort} />;
+    case "nodes":
+      return <NodesView httpPort={httpPort} />;
+    case "memory":
+      return <MemoryView httpPort={httpPort} />;
+    case "system":
+      return <SystemView httpPort={httpPort} />;
+    case "diagnostics":
+      return <DiagnosticsView httpPort={httpPort} />;
     default:
       return null;
   }
