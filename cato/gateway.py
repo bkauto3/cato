@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -31,6 +32,51 @@ _CATO_DIR      = get_data_dir()
 _WS_HOST       = "127.0.0.1"
 _WS_PORT       = 8081   # default; overridden by config.webchat_port + 1
 _LANE_QUEUE_MAX = 64
+
+# ---------------------------------------------------------------------------
+# BUG FIX CHAT-001/CHAT-002: Strip tool-call XML and budget footer from text
+# ---------------------------------------------------------------------------
+
+def strip_tool_calls(text: str) -> str:
+    """Remove minimax/generic tool call XML blocks from response text."""
+    text = re.sub(r'<minimax:tool_call>.*?</minimax:tool_call>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<invoke\b[^>]*>.*?</invoke>', '', text, flags=re.DOTALL)
+    # BUG FIX CHAT-002: Strip budget cost footer appended by agent loop
+    text = re.sub(r'\[\$[\d.]+ this call \|[^\]]+\]', '', text)
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# BUG FIX CHAT-003: Build system prompt with identity files
+# ---------------------------------------------------------------------------
+
+def build_system_prompt(base_prompt: str = "") -> str:
+    """Prepend Cato identity content from workspace files to the system prompt."""
+    data_dir = get_data_dir()
+    identity_files = ["SOUL.md", "IDENTITY.md"]
+    identity_content = []
+    for fname in identity_files:
+        fpath = data_dir / fname
+        if fpath.exists():
+            try:
+                identity_content.append(fpath.read_text(encoding="utf-8"))
+            except OSError:
+                pass
+
+    identity_block = "\n\n".join(identity_content) if identity_content else ""
+    hard_identity = (
+        "You are Cato, a privacy-focused AI agent daemon. "
+        "Do NOT identify yourself as Claude Code, Claude, or any Anthropic product. "
+        "Your name is Cato."
+    )
+
+    parts = [hard_identity]
+    if identity_block:
+        parts.append(identity_block)
+    if base_prompt:
+        parts.append(base_prompt)
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +184,8 @@ class Gateway:
         self._heartbeat_monitor = hb_monitor
         # Node keepalive pinger — proactively pings registered nodes so stale ones are evicted
         self._bg_tasks.append(asyncio.create_task(self._nodes.run_ping_loop(), name="node-pinger"))
+        # BUG FIX HB-001: heartbeat poster — POSTs to /api/heartbeat every 30s
+        self._bg_tasks.append(asyncio.create_task(self._run_heartbeat_poster(), name="heartbeat-poster"))
         logger.info("Gateway started — ws://%s:%d", _WS_HOST, _WS_PORT)
 
     async def _start_adapter(self, adapter: Any) -> None:
@@ -199,11 +247,13 @@ class Gateway:
 
     async def send(self, session_id: str, text: str, channel: str) -> None:
         """Called by agent loop to deliver a response to the originating channel."""
-        self._append_history("assistant", text, channel, session_id)
+        # BUG FIX CHAT-001/CHAT-002: strip tool call XML and budget footer
+        clean_text = strip_tool_calls(text)
+        self._append_history("assistant", clean_text, channel, session_id)
         if channel in ("web", "cron", "heartbeat"):
             await self._ws_broadcast({
                 "type": "response", "session_id": session_id,
-                "text": text, "cost_footer": self._budget.format_footer(),
+                "text": clean_text, "cost_footer": self._budget.format_footer(),
                 "channel": channel,
             })
             return
@@ -670,6 +720,36 @@ class Gateway:
             except Exception:
                 dead.add(ws)
         self._ws_clients -= dead
+
+    # ------------------------------------------------------------------
+    # Heartbeat poster (BUG FIX HB-001)
+    # ------------------------------------------------------------------
+
+    async def _run_heartbeat_poster(self) -> None:
+        """POST to /api/heartbeat every 30 seconds so the dashboard shows agent status."""
+        http_port = getattr(self._cfg, "webchat_port", None) or 8080
+        url = f"http://127.0.0.1:{http_port}/api/heartbeat"
+        await asyncio.sleep(5)  # brief delay to let server start
+        while True:
+            try:
+                import aiohttp
+                uptime = int(time.monotonic() - self._start_time)
+                agent_name = getattr(self._cfg, "agent_name", "Cato")
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        url,
+                        json={"agent_name": agent_name, "uptime_seconds": uptime},
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        logger.debug("Heartbeat POST → %s %d", url, resp.status)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.debug("Heartbeat poster error (non-fatal): %s", exc)
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                break
 
     # ------------------------------------------------------------------
     # Cron scheduler

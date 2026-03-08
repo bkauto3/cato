@@ -677,25 +677,61 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response({"status": "error", "message": str(exc)}, status=400)
 
     async def patch_config(request: web.Request) -> web.Response:
-        """PATCH /api/config — patch individual config fields."""
+        """PATCH /api/config — patch individual config fields and persist to YAML."""
         try:
+            import yaml as _yaml
+            from cato.platform import get_data_dir as _get_data_dir
             body = await request.json()
             logger.info("Config patch requested: %s", list(body.keys()))
-            return web.json_response({"status": "ok"})
+            # Load current config from YAML file
+            config_path = _get_data_dir() / "config.yaml"
+            current: dict = {}
+            if config_path.exists():
+                try:
+                    current = _yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+                except Exception:
+                    current = {}
+            # Apply patches
+            current.update(body)
+            # Persist
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(
+                _yaml.dump(current, default_flow_style=False, allow_unicode=True, sort_keys=True),
+                encoding="utf-8",
+            )
+            # Also update in-memory gateway config if available
+            if gateway is not None and hasattr(gateway, "_cfg"):
+                cfg_obj = gateway._cfg
+                from dataclasses import fields as _dc_fields
+                valid_names = {f.name for f in _dc_fields(type(cfg_obj)) if not f.name.startswith("_")}
+                for k, v in body.items():
+                    if k in valid_names:
+                        setattr(cfg_obj, k, v)
+            return web.json_response({"status": "ok", "config": current})
         except Exception as exc:
             logger.error("patch_config error: %s", exc)
             return web.json_response({"status": "error", "message": str(exc)}, status=400)
 
     async def get_config(request: web.Request) -> web.Response:
-        """GET /api/config — return current config."""
+        """GET /api/config — return current config read from YAML file."""
         try:
+            import yaml as _yaml
+            from cato.platform import get_data_dir as _get_data_dir
+            config_path = _get_data_dir() / "config.yaml"
             cfg: dict = {}
-            if gateway is not None and hasattr(gateway, "_config"):
-                raw = gateway._config
-                if hasattr(raw, "__dict__"):
-                    cfg = {k: v for k, v in raw.__dict__.items() if not k.startswith("_")}
-                elif isinstance(raw, dict):
-                    cfg = raw
+            if config_path.exists():
+                try:
+                    cfg = _yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+                except Exception:
+                    cfg = {}
+            # Merge with in-memory config defaults if available
+            if gateway is not None and hasattr(gateway, "_cfg"):
+                raw = gateway._cfg
+                if hasattr(raw, "to_dict"):
+                    defaults = raw.to_dict()
+                    # file values take precedence over defaults
+                    merged = {**defaults, **cfg}
+                    cfg = merged
             return web.json_response(cfg)
         except Exception as exc:
             logger.error("get_config error: %s", exc)
@@ -749,9 +785,12 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response([], status=500)
 
     async def memory_content(request: web.Request) -> web.Response:
-        """GET /api/memory/content?file=MEMORY.md — read a memory/workspace file."""
-        filename = request.rel_url.query.get("file", "")
-        if not filename or ".." in filename or "/" in filename or "\\" in filename:
+        """GET /api/memory/content?file=MEMORY.md&agent_id=default&type=facts — read a memory/workspace file."""
+        filename = request.rel_url.query.get("file", "").strip()
+        # BUG FIX MEM-001: agent_id defaults to "default", type is optional; file defaults to MEMORY.md
+        if not filename:
+            filename = "MEMORY.md"
+        if ".." in filename or "/" in filename or "\\" in filename:
             return web.json_response({"status": "error", "message": "invalid file"}, status=400)
         try:
             # Try ~/.cato/memory/ first, then ~/.cato/
@@ -1467,6 +1506,24 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     # Heartbeat status                                                     #
     # ------------------------------------------------------------------ #
 
+    # BUG FIX HB-001: POST /api/heartbeat — receive heartbeat from gateway poster
+    _heartbeat_state: dict = {}
+
+    async def post_heartbeat(request: web.Request) -> web.Response:
+        """POST /api/heartbeat — receive a heartbeat POST from the gateway background task."""
+        try:
+            body = await request.json()
+            agent_name = str(body.get("agent_name", "Cato"))
+            uptime_seconds = int(body.get("uptime_seconds", 0))
+            _heartbeat_state["agent_name"] = agent_name
+            _heartbeat_state["uptime_seconds"] = uptime_seconds
+            _heartbeat_state["last_seen"] = time.monotonic()
+            logger.debug("Heartbeat received from agent=%s uptime=%d", agent_name, uptime_seconds)
+            return web.json_response({"status": "ok"})
+        except Exception as exc:
+            logger.error("post_heartbeat error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=500)
+
     async def get_heartbeat(request: web.Request) -> web.Response:
         """GET /api/heartbeat — return HeartbeatMonitor state."""
         try:
@@ -1488,6 +1545,17 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             last_fire: dict[str, float] = getattr(monitor, "_last_fire", {})
 
             if not last_fire:
+                # Fall back to POST-based heartbeat state
+                if _heartbeat_state.get("last_seen"):
+                    import datetime as _dt2
+                    elapsed2 = time.monotonic() - _heartbeat_state["last_seen"]
+                    wall2 = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=elapsed2)
+                    return web.json_response({
+                        "last_heartbeat": wall2.isoformat(),
+                        "agent_name": _heartbeat_state.get("agent_name", "Cato"),
+                        "uptime_seconds": _heartbeat_state.get("uptime_seconds", 0),
+                        "status": "alive" if elapsed2 < 600 else "stale",
+                    })
                 return web.json_response({
                     "last_heartbeat": None,
                     "agent_name": None,
@@ -1589,6 +1657,8 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/api/workspace/files",           workspace_list)
     app.router.add_get("/api/workspace/file",            workspace_get)
     app.router.add_put("/api/workspace/file",            workspace_put)
+    # BUG FIX IDENT-002: POST as alias for PUT on workspace file
+    app.router.add_post("/api/workspace/file",           workspace_put)
     # Action Guard
     app.router.add_get("/api/action-guard/status",       action_guard_status)
     # Daemon
@@ -1610,6 +1680,8 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     app.router.add_get("/api/adapters",                 list_adapters)
     # Heartbeat
     app.router.add_get("/api/heartbeat",                get_heartbeat)
+    # BUG FIX HB-001: POST endpoint for gateway heartbeat poster
+    app.router.add_post("/api/heartbeat",               post_heartbeat)
     # Nodes
     app.router.add_get("/api/nodes",                    list_nodes)
     app.router.add_delete("/api/nodes/{node_id}",       disconnect_node)

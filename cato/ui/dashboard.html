@@ -442,6 +442,8 @@ textarea.form-input{resize:vertical;min-height:80px}
       <div id="group-automation">
         <div class="nav-item" data-page="cron" onclick="navigate('cron')"><span class="nav-item-icon">&#9201;</span>Cron</div>
         <div class="nav-item" data-page="sessions" onclick="navigate('sessions')"><span class="nav-item-icon">&#128203;</span>Sessions</div>
+        <!-- BUG FIX FLOW-003: Flows nav item -->
+        <div class="nav-item" data-page="flows" onclick="navigate('flows')"><span class="nav-item-icon">&#9654;</span>Flows</div>
       </div>
 
       <div class="nav-group-header" onclick="toggleGroup('monitoring')">
@@ -463,6 +465,8 @@ textarea.form-input{resize:vertical;min-height:80px}
       <div id="group-system">
         <div class="nav-item" data-page="system" onclick="navigate('system')"><span class="nav-item-icon">&#128736;</span>System</div>
         <div class="nav-item" data-page="diagnostics" onclick="navigate('diagnostics')"><span class="nav-item-icon">&#128300;</span>Diagnostics</div>
+        <!-- BUG FIX NODE-001: Nodes nav item -->
+        <div class="nav-item" data-page="nodes" onclick="navigate('nodes')"><span class="nav-item-icon">&#128257;</span>Nodes</div>
       </div>
 
       <div class="nav-group-header" onclick="toggleGroup('settings')">
@@ -474,6 +478,8 @@ textarea.form-input{resize:vertical;min-height:80px}
         <div class="nav-item" data-page="budget" onclick="navigate('budget')"><span class="nav-item-icon">&#128176;</span>Budget</div>
         <div class="nav-item" data-page="conduit" onclick="navigate('conduit')"><span class="nav-item-icon">&#128241;</span>Conduit</div>
         <div class="nav-item" data-page="vault" onclick="navigate('vault')"><span class="nav-item-icon">&#128272;</span>Vault &amp; Auth <span class="swarmsync-dot" id="swarmsync-nav-dot" style="margin-left:4px"></span></div>
+        <!-- BUG FIX IDENT-004: Identity page nav item -->
+        <div class="nav-item" data-page="identity" onclick="navigate('identity')"><span class="nav-item-icon">&#129395;</span>Identity</div>
       </div>
     </div>
 
@@ -991,7 +997,8 @@ textarea.form-input{resize:vertical;min-height:80px}
         </div>
       </div>
 
-      <!-- Alerts -->
+      <!-- Alerts (BUG FIX ALERTS-001: wrapped in proper page div) -->
+      <div id="alerts-page" class="page">
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
           <span style="color:#94a3b8;font-size:13px;flex:1" id="alerts-count">0 notifications</span>
           <div style="display:flex;gap:6px">
@@ -1003,6 +1010,42 @@ textarea.form-input{resize:vertical;min-height:80px}
           <button class="btn btn-ghost btn-sm" onclick="clearAlerts()">Clear All</button>
         </div>
         <div id="alerts-list"></div>
+      </div>
+
+      <!-- BUG FIX IDENT-004: Identity/workspace files editor page -->
+      <div id="identity-page" class="page">
+        <div class="card">
+          <div class="card-title">Identity &amp; Workspace Files</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:16px">Edit SOUL.md, IDENTITY.md, USER.md, AGENTS.md — these define Cato's personality and context.</div>
+          <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="loadIdentityFile('SOUL.md')">SOUL.md</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadIdentityFile('IDENTITY.md')">IDENTITY.md</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadIdentityFile('USER.md')">USER.md</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadIdentityFile('AGENTS.md')">AGENTS.md</button>
+          </div>
+          <div style="font-size:12px;color:#94a3b8;margin-bottom:6px" id="identity-file-label">Select a file above to edit</div>
+          <textarea id="identity-file-content" class="form-input" style="height:400px;font-family:monospace;font-size:12px;resize:vertical;width:100%;box-sizing:border-box" placeholder="File content will appear here..."></textarea>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-primary" onclick="saveIdentityFile()">Save</button>
+            <span id="identity-save-status" style="font-size:12px;color:#22c55e;align-self:center;display:none">Saved!</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BUG FIX FLOW-003: Flows page -->
+      <div id="flows-page" class="page">
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+          <span style="font-size:14px;font-weight:600;color:#e2e8f0;flex:1">Flows</span>
+          <button class="btn btn-primary btn-sm" onclick="showCreateFlowDialog()">+ Create Flow</button>
+        </div>
+        <div id="flows-list"><div style="color:#4b5563;font-size:13px">Loading flows...</div></div>
+      </div>
+
+      <!-- BUG FIX NODE-001: Nodes page -->
+      <div id="nodes-page" class="page">
+        <div style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:16px">Remote Nodes</div>
+        <div id="nodes-list"><div style="color:#4b5563;font-size:13px">Loading nodes...</div></div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="loadNodes()">Refresh</button>
       </div>
 
     </div><!-- /content -->
@@ -1260,6 +1303,7 @@ const PAGE_TITLES = {
   usage:'Usage', audit:'Audit Log', memory:'Memory Browser', logs:'Logs', alerts:'Alerts',
   config:'Config', budget:'Budget', conduit:'Conduit — Search Providers', vault:'Vault & Auth',
   system:'System', diagnostics:'Diagnostics',
+  identity:'Identity & Workspace', flows:'Flows', nodes:'Remote Nodes',
 };
 
 function navigate(page) {
@@ -1298,6 +1342,9 @@ function onPageEnter(page) {
   if (page === 'vault')    renderVaultPage();
   if (page === 'system')   { loadSystemCliPool(); loadSystemActionGuard(); }
   if (page === 'diagnostics') { loadQueryTiers(); loadContradictionHealth(); loadDecisionMemory(); }
+  if (page === 'flows')      loadFlows();
+  if (page === 'nodes')      loadNodes();
+  if (page === 'identity')   loadIdentityFile('SOUL.md');
 }
 
 function toggleGroup(name) {
@@ -3367,10 +3414,19 @@ async function loadSystemCliPool() {
       return;
     }
     el.innerHTML = entries.map(m => {
-      const status = m.status || m.state || 'unknown';
-      const warm = status === 'warm';
-      const cold = status === 'cold';
-      const cls = warm ? 'badge-green' : cold ? 'badge-yellow' : 'badge-gray';
+      // BUG FIX SYS-001: use installed/logged_in fields if present
+      const installed = m.installed != null ? m.installed : true;
+      const loggedIn  = m.logged_in  != null ? m.logged_in  : true;
+      let status = m.status || m.state || '';
+      let cls, label;
+      if (!installed) {
+        cls = 'badge-gray'; label = 'Not installed';
+      } else if (loggedIn || status === 'warm') {
+        cls = 'badge-green'; label = status || 'Ready';
+      } else {
+        // installed but not logged in = warm (yellow), NOT cold (red)
+        cls = 'badge-yellow'; label = status || 'Installed';
+      }
       const icon = m.model === 'claude' ? '&#129302;' : m.model === 'codex' ? '&#128187;' : m.model === 'gemini' ? '&#127381;' : m.model === 'cursor' ? '&#9654;' : '&#128296;';
       return `<div class="cli-status-row">
         <span class="cli-logo">${icon}</span>
@@ -3378,7 +3434,7 @@ async function loadSystemCliPool() {
           <div class="cli-name">${esc(m.model || m.name || '?')}</div>
           ${m.version ? `<div class="cli-version">${esc(m.version)}</div>` : ''}
           <div class="cli-badges">
-            <span class="badge ${cls}">${esc(status)}</span>
+            <span class="badge ${cls}">${esc(label)}</span>
             ${m.pool_size != null ? `<span class="badge badge-gray">${m.pool_size} workers</span>` : ''}
           </div>
         </div>
@@ -3588,6 +3644,136 @@ window.addEventListener('hashchange', () => {
 });
 
 window.addEventListener('DOMContentLoaded', boot);
+
+// ── BUG FIX IDENT-004: Identity file editor ─────────────────────────────────
+let _identityCurrentFile = '';
+async function loadIdentityFile(fname) {
+  _identityCurrentFile = fname;
+  const label = document.getElementById('identity-file-label');
+  const ta    = document.getElementById('identity-file-content');
+  const ss    = document.getElementById('identity-save-status');
+  if (label) label.textContent = 'Editing: ' + fname;
+  if (ss) ss.style.display = 'none';
+  try {
+    const r = await fetch('/api/workspace/file?name=' + encodeURIComponent(fname));
+    if (r.ok) {
+      const d = await r.json();
+      if (ta) ta.value = d.content || '';
+    } else {
+      if (ta) ta.value = '';
+    }
+  } catch (_) {
+    if (ta) ta.value = '';
+  }
+}
+async function saveIdentityFile() {
+  if (!_identityCurrentFile) return;
+  const ta = document.getElementById('identity-file-content');
+  const ss = document.getElementById('identity-save-status');
+  const content = ta ? ta.value : '';
+  try {
+    const r = await fetch('/api/workspace/file', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: _identityCurrentFile, content}),
+    });
+    if (r.ok) {
+      if (ss) { ss.style.display = 'inline'; setTimeout(() => { ss.style.display = 'none'; }, 2000); }
+      appendAlert('info', 'Saved ' + _identityCurrentFile);
+    } else {
+      appendAlert('error', 'Failed to save ' + _identityCurrentFile);
+    }
+  } catch (e) {
+    appendAlert('error', 'Error saving: ' + e.message);
+  }
+}
+
+// ── BUG FIX FLOW-003: Flows page ────────────────────────────────────────────
+async function loadFlows() {
+  const el = document.getElementById('flows-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/flows');
+    if (!r.ok) throw new Error(r.status);
+    const flows = await r.json();
+    if (!flows.length) {
+      el.innerHTML = '<div style="color:#4b5563;font-size:13px">No flows installed. Click "Create Flow" to add one.</div>';
+      return;
+    }
+    el.innerHTML = flows.map(f => `<div class="card" style="margin-bottom:10px;padding:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-weight:600;color:#e2e8f0">${esc(f.name||f)}</div>
+          ${f.description ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${esc(f.description)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary btn-sm" onclick="runFlow(${JSON.stringify(f.name||f)})">Run</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteFlow(${JSON.stringify(f.name||f)})">Delete</button>
+        </div>
+      </div>
+    </div>`).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:13px">Flows unavailable — daemon may be offline.</div>';
+  }
+}
+async function runFlow(name) {
+  try {
+    const r = await fetch('/api/flows/' + encodeURIComponent(name) + '/run', {method:'POST'});
+    const d = await r.json();
+    appendAlert(r.ok ? 'info' : 'error', 'Flow ' + name + ': ' + (d.status || d.error || JSON.stringify(d)));
+  } catch (e) { appendAlert('error', 'Run flow error: ' + e.message); }
+}
+async function deleteFlow(name) {
+  if (!confirm('Delete flow "' + name + '"?')) return;
+  try {
+    const r = await fetch('/api/flows/' + encodeURIComponent(name), {method:'DELETE'});
+    if (r.ok) { appendAlert('info', 'Flow deleted: ' + name); loadFlows(); }
+    else { appendAlert('error', 'Failed to delete flow'); }
+  } catch (e) { appendAlert('error', 'Delete flow error: ' + e.message); }
+}
+function showCreateFlowDialog() {
+  const name = prompt('Flow name (letters, numbers, dashes only):');
+  if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) { alert('Invalid name'); return; }
+  const content = prompt('Flow YAML content:', 'name: ' + name + '\nsteps:\n  - prompt: Hello');
+  if (!content) return;
+  fetch('/api/flows', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, content})})
+    .then(r => r.json()).then(d => { appendAlert(d.status==='ok'?'info':'error', d.status==='ok'?'Flow created: '+name:d.error||'Error'); loadFlows(); })
+    .catch(e => appendAlert('error', e.message));
+}
+
+// ── BUG FIX NODE-001: Nodes page ────────────────────────────────────────────
+async function loadNodes() {
+  const el = document.getElementById('nodes-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/nodes');
+    if (!r.ok) throw new Error(r.status);
+    const nodes = await r.json();
+    if (!nodes.length) {
+      el.innerHTML = '<div style="color:#4b5563;font-size:13px">No remote nodes connected.</div>';
+      return;
+    }
+    el.innerHTML = nodes.map(n => `<div class="card" style="margin-bottom:10px;padding:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-weight:600;color:#e2e8f0">${esc(n.name||n.node_id)}</div>
+          <div style="font-size:12px;color:#64748b">ID: ${esc(n.node_id)} ${n.stale ? '&#9888; Stale' : ''}</div>
+          ${n.capabilities && n.capabilities.length ? `<div style="font-size:12px;color:#64748b">Caps: ${n.capabilities.map(esc).join(', ')}</div>` : ''}
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="disconnectNode(${JSON.stringify(n.node_id)})">Disconnect</button>
+      </div>
+    </div>`).join('');
+  } catch (_) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:13px">Nodes unavailable — daemon may be offline.</div>';
+  }
+}
+async function disconnectNode(nodeId) {
+  try {
+    const r = await fetch('/api/nodes/' + encodeURIComponent(nodeId), {method:'DELETE'});
+    if (r.ok) { appendAlert('info', 'Node disconnected'); loadNodes(); }
+    else { appendAlert('error', 'Failed to disconnect node'); }
+  } catch (e) { appendAlert('error', 'Error: ' + e.message); }
+}
 </script>
 </body>
 </html>
