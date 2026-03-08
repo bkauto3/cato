@@ -48,15 +48,16 @@ _PREMIUM = ["claude-opus-4-6", "gemini-2.0-pro-exp", "gpt-4o", "deepseek-reasone
 
 # (prefix, base_url, auth_scheme)
 _PROVIDERS: list[tuple[str, str, str]] = [
-    ("claude-",   "https://api.anthropic.com/v1/messages",                                    "x-api-key"),
-    ("gpt-",      "https://api.openai.com/v1/chat/completions",                               "bearer"),
-    ("o3-",       "https://api.openai.com/v1/chat/completions",                               "bearer"),
-    ("gemini-",   "https://generativelanguage.googleapis.com/v1beta/models",                  "google"),
-    ("deepseek-", "https://api.deepseek.com/v1/chat/completions",                             "bearer"),
-    ("llama-",    "https://api.groq.com/openai/v1/chat/completions",                          "bearer"),
-    ("mistral-",  "https://api.mistral.ai/v1/chat/completions",                               "bearer"),
-    ("abab",      "https://api.minimax.chat/v1/text/chatcompletion_pro",                      "bearer"),
-    ("moonshot-", "https://api.moonshot.cn/v1/chat/completions",                              "bearer"),
+    ("claude-",     "https://api.anthropic.com/v1/messages",                                    "x-api-key"),
+    ("gpt-",        "https://api.openai.com/v1/chat/completions",                               "bearer"),
+    ("o3-",         "https://api.openai.com/v1/chat/completions",                               "bearer"),
+    ("gemini-",     "https://generativelanguage.googleapis.com/v1beta/models",                  "google"),
+    ("deepseek-",   "https://api.deepseek.com/v1/chat/completions",                             "bearer"),
+    ("llama-",      "https://api.groq.com/openai/v1/chat/completions",                          "bearer"),
+    ("mistral-",    "https://api.mistral.ai/v1/chat/completions",                               "bearer"),
+    ("abab",        "https://api.minimax.chat/v1/text/chatcompletion_pro",                      "bearer"),
+    ("moonshot-",   "https://api.moonshot.cn/v1/chat/completions",                              "bearer"),
+    ("openrouter/", "https://openrouter.ai/api/v1/chat/completions",                            "openrouter"),
 ]
 
 # Signal regexes for complexity scoring
@@ -79,9 +80,13 @@ class ModelRouter:
         swarmsync_api_url: str = "https://api.swarmsync.ai/v1/chat/completions",
     ) -> None:
         self._vault = vault
-        # Translate OpenRouter-style slugs (e.g. "openrouter/minimax/minimax-m2.5")
-        # to native model IDs so _resolve_provider() can match them correctly.
-        self._preferred = MODEL_TRANSLATIONS.get(preferred_model, preferred_model)
+        # Keep openrouter/ prefixed models untranslated so they route through
+        # the OpenRouter provider entry.  All other slugs are translated to their
+        # native IDs (e.g. "anthropic/claude-sonnet-4-6" → "claude-sonnet-4-6").
+        if preferred_model.startswith("openrouter/"):
+            self._preferred = preferred_model
+        else:
+            self._preferred = MODEL_TRANSLATIONS.get(preferred_model, preferred_model)
         self._blocked: set[str] = set(blocked_models or [])
         self._swarmsync_url = swarmsync_api_url
 
@@ -283,6 +288,8 @@ class ModelRouter:
             return self._vault.get("ANTHROPIC_API_KEY") or ""
         if auth == "google":
             return self._vault.get("GOOGLE_API_KEY") or ""
+        if auth == "openrouter":
+            return self._vault.get("OPENROUTER_API_KEY") or ""
         mapping = {
             "openrouter/": "OPENROUTER_API_KEY",
             "swarmsync/":  "SWARMSYNC_API_KEY",

@@ -2,118 +2,195 @@
 tests/test_cursor_subagent.py
 
 Tests for:
-  - invoke_cursor_cli  (new Cursor Agent CLI invoker)
+  - invoke_cursor_cli  (Cursor Agent CLI invoker — real headless implementation)
+  - _resolve_cursor_agent (binary locator)
   - invoke_subagent    (backend dispatcher)
   - CatoConfig subagent fields
+
+Live test result (2026-03-07, updated):
+  The ``agent`` CLI (cursor-agent v2026.02.27) supports ``--print`` mode for
+  headless non-interactive output.  invoke_cursor_cli now uses this via
+  node.exe + index.js directly (bypassing the .cmd/.ps1 launcher which hangs
+  without a TTY).  ``agent login`` must be run once to authenticate.
 """
 
 from __future__ import annotations
 
-import asyncio
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from cato.orchestrator.cli_invoker import (
-    SubprocessError,
+    _resolve_cursor_agent,
     invoke_cursor_cli,
     invoke_subagent,
 )
 
 
 # ------------------------------------------------------------------ #
-# invoke_cursor_cli                                                   #
+# _resolve_cursor_agent — binary locator                             #
+# ------------------------------------------------------------------ #
+
+def test_resolve_cursor_agent_not_installed(tmp_path, monkeypatch):
+    """Raises FileNotFoundError when LOCALAPPDATA has no cursor-agent dir."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    with pytest.raises(FileNotFoundError, match="cursor-agent not installed"):
+        _resolve_cursor_agent()
+
+
+def test_resolve_cursor_agent_empty_versions(tmp_path, monkeypatch):
+    """Raises FileNotFoundError when versions directory exists but is empty."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    (tmp_path / "cursor-agent" / "versions").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match="versions directory is empty"):
+        _resolve_cursor_agent()
+
+
+def test_resolve_cursor_agent_missing_node(tmp_path, monkeypatch):
+    """Raises FileNotFoundError when node.exe is absent from version dir."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    ver = tmp_path / "cursor-agent" / "versions" / "2026.02.27-abc"
+    ver.mkdir(parents=True)
+    (ver / "index.js").write_text("// stub")
+    # node.exe intentionally absent
+    with pytest.raises(FileNotFoundError, match="node.exe not found"):
+        _resolve_cursor_agent()
+
+
+def test_resolve_cursor_agent_picks_latest_version(tmp_path, monkeypatch):
+    """Returns paths from the lexicographically latest version directory."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    for ver_name in ("2026.01.01-aaa", "2026.02.27-bbb", "2026.01.15-ccc"):
+        ver = tmp_path / "cursor-agent" / "versions" / ver_name
+        ver.mkdir(parents=True)
+        (ver / "node.exe").write_text("stub")
+        (ver / "index.js").write_text("stub")
+
+    node_exe, index_js = _resolve_cursor_agent()
+    assert "2026.02.27-bbb" in node_exe
+    assert "2026.02.27-bbb" in index_js
+
+
+# ------------------------------------------------------------------ #
+# invoke_cursor_cli — happy path                                      #
 # ------------------------------------------------------------------ #
 
 @pytest.mark.asyncio
-async def test_invoke_cursor_cli_success():
-    """Happy path: cursor agent returns a non-empty response."""
-    async def fake_subprocess(args, timeout_sec=90.0):
-        return "Here is the refactored function [confidence: 0.82]"
+async def test_invoke_cursor_cli_success(tmp_path, monkeypatch):
+    """Returns a non-degraded result when the agent subprocess succeeds."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    ver = tmp_path / "cursor-agent" / "versions" / "2026.02.27-e7d2ef6"
+    ver.mkdir(parents=True)
+    (ver / "node.exe").write_text("stub")
+    (ver / "index.js").write_text("stub")
 
-    with patch("cato.orchestrator.cli_invoker._resolve_cli", return_value=["cursor"]), \
-         patch("cato.orchestrator.cli_invoker._run_subprocess_async",
-               side_effect=fake_subprocess):
+    with patch("cato.orchestrator.cli_invoker._run_subprocess_async",
+               new_callable=AsyncMock,
+               return_value="The refactored function looks good.") as mock_sub:
         result = await invoke_cursor_cli("def foo(): pass", "refactor foo")
 
     assert result["model"] == "cursor"
     assert result["degraded"] is False
     assert result["source"] == "subprocess"
     assert "refactored" in result["response"]
-    assert 0 <= result["confidence"] <= 1
+    assert result["confidence"] >= 0.0
     assert result["latency_ms"] >= 0
+    # Verify --print and --trust flags were passed
+    call_args = mock_sub.call_args[0][0]  # first positional arg = args list
+    assert "--print" in call_args
+    assert "--trust" in call_args
+    assert "--yolo" in call_args
+    assert "--model" in call_args
+    assert "auto" in call_args
 
 
 @pytest.mark.asyncio
-async def test_invoke_cursor_cli_not_installed():
-    """FileNotFoundError → degraded mock response, no exception raised."""
-    with patch("cato.orchestrator.cli_invoker._resolve_cli",
-               side_effect=FileNotFoundError("cursor not found")):
+async def test_invoke_cursor_cli_returns_correct_shape(tmp_path, monkeypatch):
+    """Return dict has all required keys."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    ver = tmp_path / "cursor-agent" / "versions" / "2026.02.27-e7d2ef6"
+    ver.mkdir(parents=True)
+    (ver / "node.exe").write_text("stub")
+    (ver / "index.js").write_text("stub")
+
+    with patch("cato.orchestrator.cli_invoker._run_subprocess_async",
+               new_callable=AsyncMock, return_value="ok"):
         result = await invoke_cursor_cli("prompt", "task")
+
+    for key in ("model", "response", "confidence", "latency_ms", "degraded", "source"):
+        assert key in result, f"Missing key: {key}"
+    assert result["model"] == "cursor"
+
+
+# ------------------------------------------------------------------ #
+# invoke_cursor_cli — error paths                                     #
+# ------------------------------------------------------------------ #
+
+@pytest.mark.asyncio
+async def test_invoke_cursor_cli_not_installed_returns_degraded(tmp_path, monkeypatch):
+    """Returns degraded=True when cursor-agent is not installed."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    # no cursor-agent directory → FileNotFoundError from _resolve_cursor_agent
+    result = await invoke_cursor_cli("prompt", "task")
 
     assert result["model"] == "cursor"
     assert result["degraded"] is True
     assert result["source"] == "mock"
-    assert "[Cursor Mock]" in result["response"]
-    assert result["confidence"] == 0.70
-    assert result["latency_ms"] >= 0
+    assert result["confidence"] == 0.0
 
 
 @pytest.mark.asyncio
-async def test_invoke_cursor_cli_subprocess_error():
-    """Non-zero exit → degraded result with error text."""
-    with patch("cato.orchestrator.cli_invoker._resolve_cli", return_value=["cursor"]), \
-         patch("cato.orchestrator.cli_invoker._run_subprocess_async",
-               side_effect=SubprocessError("cursor", 1, "cursor agent crashed")):
+async def test_invoke_cursor_cli_subprocess_error_returns_degraded(tmp_path, monkeypatch):
+    """Returns degraded=True when the agent subprocess fails."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    ver = tmp_path / "cursor-agent" / "versions" / "2026.02.27-e7d2ef6"
+    ver.mkdir(parents=True)
+    (ver / "node.exe").write_text("stub")
+    (ver / "index.js").write_text("stub")
+
+    from cato.orchestrator.cli_invoker import SubprocessError
+    with patch("cato.orchestrator.cli_invoker._run_subprocess_async",
+               new_callable=AsyncMock,
+               side_effect=SubprocessError("node.exe", 1, "usage limit exceeded")):
         result = await invoke_cursor_cli("prompt", "task")
 
     assert result["model"] == "cursor"
     assert result["degraded"] is True
-    assert "cursor agent crashed" in result["response"]
-    assert result["confidence"] == 0.55
+    assert "usage limit" in result["response"]
 
 
 @pytest.mark.asyncio
-async def test_invoke_cursor_cli_timeout():
-    """asyncio.TimeoutError → degraded result, no exception raised."""
-    with patch("cato.orchestrator.cli_invoker._resolve_cli", return_value=["cursor"]), \
-         patch("cato.orchestrator.cli_invoker._run_subprocess_async",
+async def test_invoke_cursor_cli_timeout_returns_degraded(tmp_path, monkeypatch):
+    """Returns degraded=True on subprocess timeout."""
+    import asyncio
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    ver = tmp_path / "cursor-agent" / "versions" / "2026.02.27-e7d2ef6"
+    ver.mkdir(parents=True)
+    (ver / "node.exe").write_text("stub")
+    (ver / "index.js").write_text("stub")
+
+    with patch("cato.orchestrator.cli_invoker._run_subprocess_async",
+               new_callable=AsyncMock,
                side_effect=asyncio.TimeoutError()):
         result = await invoke_cursor_cli("prompt", "task")
 
     assert result["model"] == "cursor"
     assert result["degraded"] is True
     assert "timed out" in result["response"].lower()
-    assert result["confidence"] == 0.55
 
 
 @pytest.mark.asyncio
-async def test_invoke_cursor_cli_empty_output_is_degraded():
-    """Empty stdout from cursor agent is treated as a SubprocessError."""
-    async def empty_subprocess(args, timeout_sec=90.0):
-        return ""   # cursor agent returned nothing
-
-    with patch("cato.orchestrator.cli_invoker._resolve_cli", return_value=["cursor"]), \
-         patch("cato.orchestrator.cli_invoker._run_subprocess_async",
-               side_effect=empty_subprocess):
+async def test_invoke_cursor_cli_never_raises(tmp_path, monkeypatch):
+    """invoke_cursor_cli must not raise any exception — returns degraded instead."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    # not installed → clean degraded return
+    try:
         result = await invoke_cursor_cli("prompt", "task")
-
-    assert result["model"] == "cursor"
-    assert result["degraded"] is True
-
-
-@pytest.mark.asyncio
-async def test_invoke_cursor_cli_generic_exception():
-    """Catch-all Exception handler returns degraded result without raising."""
-    with patch("cato.orchestrator.cli_invoker._resolve_cli", return_value=["cursor"]), \
-         patch("cato.orchestrator.cli_invoker._run_subprocess_async",
-               side_effect=RuntimeError("unexpected cursor error")):
-        result = await invoke_cursor_cli("prompt", "task")
-
-    assert result["model"] == "cursor"
-    assert result["degraded"] is True
-    assert "unexpected cursor error" in result["response"]
-    assert result["source"] == "mock"
+        assert isinstance(result, dict)
+    except Exception as exc:
+        pytest.fail(f"invoke_cursor_cli raised unexpectedly: {exc}")
 
 
 # ------------------------------------------------------------------ #

@@ -76,6 +76,7 @@ def _resolve_cli(name: str) -> list:
 async def _run_subprocess_async(
     args: list,
     timeout_sec: float = 60.0,
+    stdin_data: Optional[bytes] = None,
 ) -> str:
     """
     Run a subprocess asynchronously without blocking the event loop.
@@ -83,6 +84,8 @@ async def _run_subprocess_async(
     Args:
         args: Command and arguments list.
         timeout_sec: Maximum time to wait for the process.
+        stdin_data: Optional bytes to write to the process stdin before
+            waiting for output.  When None, stdin is inherited (default).
 
     Returns:
         stdout text on success.
@@ -94,11 +97,14 @@ async def _run_subprocess_async(
     """
     proc = await asyncio.create_subprocess_exec(
         *args,
+        stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=stdin_data), timeout=timeout_sec
+        )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.communicate()  # reap the zombie
@@ -468,16 +474,69 @@ async def invoke_with_early_termination(
         await asyncio.gather(*model_tasks, return_exceptions=True)
 
 
+def _resolve_cursor_agent() -> Tuple[str, str]:
+    """
+    Locate the cursor-agent Node.js binary and index.js entry point.
+
+    The cursor-agent CLI installs under:
+        %LOCALAPPDATA%\\cursor-agent\\versions\\<version>\\
+
+    It ships its own node.exe and a bundled index.js.  We use these directly
+    rather than going through the .cmd/.ps1 launcher, which hangs in a
+    non-interactive shell (PowerShell startup overhead + no TTY).
+
+    Returns:
+        (node_exe_path, index_js_path) — both absolute paths.
+
+    Raises:
+        FileNotFoundError: If the cursor-agent installation is not found.
+    """
+    import os
+    from pathlib import Path
+
+    base = Path(os.environ.get("LOCALAPPDATA", "")) / "cursor-agent" / "versions"
+    if not base.is_dir():
+        raise FileNotFoundError(f"cursor-agent not installed (looked in {base})")
+
+    # Pick the lexicographically latest version directory
+    versions = sorted(p for p in base.iterdir() if p.is_dir())
+    if not versions:
+        raise FileNotFoundError(f"cursor-agent versions directory is empty: {base}")
+
+    latest = versions[-1]
+    node_exe = latest / "node.exe"
+    index_js = latest / "index.js"
+
+    if not node_exe.exists():
+        raise FileNotFoundError(f"cursor-agent node.exe not found: {node_exe}")
+    if not index_js.exists():
+        raise FileNotFoundError(f"cursor-agent index.js not found: {index_js}")
+
+    return str(node_exe), str(index_js)
+
+
 async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
     """
-    Invoke Cursor Agent CLI asynchronously (``cursor agent``).
+    Invoke Cursor Agent CLI in headless (non-interactive) mode.
 
-    Cursor exposes a headless terminal agent mode via ``cursor agent``.
-    It reads from stdin and writes the agent response to stdout, making it
-    suitable for subprocess invocation without launching the full IDE.
+    The cursor-agent CLI (``agent`` command, v2026.02.27+) supports a
+    ``--print`` flag that enables headless/scriptable output — equivalent to
+    Claude's ``-p`` flag.  Combined with ``--trust`` (skip workspace prompt)
+    and ``--yolo`` (allow all tool use without confirmation), it can be driven
+    from a subprocess without a TTY.
 
-    Unlike Codex (MCP server) or Claude (stream-json), Cursor agent speaks
-    plain text over stdio, so we pipe the prompt in and read stdout back.
+    The .cmd/.ps1 launchers hang in a non-interactive shell due to PowerShell
+    startup overhead.  This function bypasses them by invoking node.exe and
+    index.js from the versioned installation directory directly.
+
+    Auth state is read from ~/.cursor/cli-config.json (set by ``agent login``).
+    Model defaults to ``auto`` (Cursor's model router) to avoid hitting
+    per-model usage caps on individual Claude/Codex allocations.
+
+    Falls back to a degraded mock if:
+    - cursor-agent is not installed
+    - The subprocess times out (120 s)
+    - The agent returns a non-zero exit code
 
     Args:
         prompt: Context or code to analyse.
@@ -489,20 +548,16 @@ async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
     start_time = time.time()
 
     try:
-        cli_args = _resolve_cli("cursor")
+        node_exe, index_js = _resolve_cursor_agent()
         full_prompt = f"Task: {task}\n\nContext: {prompt}"
-        # ``cursor agent`` reads the prompt from stdin when invoked with no file args
+
         response_text = await _run_subprocess_async(
-            cli_args + ["agent"],
-            timeout_sec=90.0,
+            [node_exe, index_js, "--print", "--trust", "--yolo", "--model", "auto", full_prompt],
+            timeout_sec=120.0,
         )
-        # If cursor agent wrote nothing useful, treat as degraded
-        if not response_text.strip():
-            raise SubprocessError("cursor", 0, "cursor agent returned empty output")
 
         confidence = extract_confidence(response_text)
         latency_ms = (time.time() - start_time) * 1000
-
         return {
             "model": "cursor",
             "response": response_text,
@@ -511,24 +566,24 @@ async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
             "degraded": False,
             "source": "subprocess",
         }
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         latency_ms = (time.time() - start_time) * 1000
-        logger.warning("cursor CLI not found, using mock response")
+        logger.warning("cursor-agent not found: %s", e)
         return {
             "model": "cursor",
-            "response": f"[Cursor Mock] CLI not installed. Task: {task}",
-            "confidence": 0.70,
+            "response": f"[Cursor] Agent CLI not installed. Run `agent login` to set up. ({e})",
+            "confidence": 0.0,
             "latency_ms": latency_ms,
             "degraded": True,
             "source": "mock",
         }
     except SubprocessError as e:
         latency_ms = (time.time() - start_time) * 1000
-        logger.error("cursor agent failed (rc=%d): %s", e.returncode, e.stderr[:200])
+        logger.error("cursor-agent failed (rc=%d): %s", e.returncode, e.stderr[:200])
         return {
             "model": "cursor",
             "response": f"[Cursor Error] {e.stderr[:500]}",
-            "confidence": 0.55,
+            "confidence": 0.0,
             "latency_ms": latency_ms,
             "degraded": True,
             "source": "subprocess",
@@ -537,8 +592,8 @@ async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
         latency_ms = (time.time() - start_time) * 1000
         return {
             "model": "cursor",
-            "response": "[Cursor Error] Process timed out after 90s",
-            "confidence": 0.55,
+            "response": "[Cursor Error] Agent timed out after 120s",
+            "confidence": 0.0,
             "latency_ms": latency_ms,
             "degraded": True,
             "source": "subprocess",
@@ -548,7 +603,7 @@ async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
         return {
             "model": "cursor",
             "response": f"[Cursor Error] {str(e)}",
-            "confidence": 0.55,
+            "confidence": 0.0,
             "latency_ms": latency_ms,
             "degraded": True,
             "source": "mock",

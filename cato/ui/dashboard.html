@@ -1224,10 +1224,10 @@ function onPageEnter(page) {
   if (page === 'dashboard') renderDashboard();
   if (page === 'chat')     { renderSessions(); updateChatReadonlyState(); }
   if (page === 'agents')   renderAgents();
-  if (page === 'skills')   renderSkills();
+  if (page === 'skills')   loadAndRenderSkills();
   if (page === 'cron')     renderCron();
   if (page === 'sessions') renderSessionsPage();
-  if (page === 'usage')    renderUsage();
+  if (page === 'usage')    loadAndRenderUsage();
   if (page === 'audit')    { loadAuditEntries(); }
   if (page === 'memory')   { loadMemoryStats(); loadMemoryFiles(); }
   if (page === 'logs')     filterLogs();
@@ -1974,36 +1974,65 @@ function setUsagePeriod(p, btn) {
   state.usagePeriod = p;
   document.querySelectorAll('.usage-period').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  renderUsage();
+  loadAndRenderUsage();
 }
 
-function renderUsage() {
-  const data = getSampleUsageData();
+async function loadAndRenderUsage() {
+  let apiData = null;
+  try {
+    const r = await fetch('/api/usage/summary');
+    if (r.ok) apiData = await r.json();
+  } catch (_) {}
+  renderUsage(apiData);
+}
+
+function renderUsage(apiData) {
+  // Prefer API data; fall back to state.modelPricing (zeros) when offline
+  let data;
+  if (apiData && (apiData.models || apiData.by_model) &&
+      (apiData.models || apiData.by_model).length) {
+    const models = apiData.models || apiData.by_model;
+    data = models.map(m => ({
+      model: m.model || m.name || '?',
+      calls: m.calls || m.total_calls || 0,
+      inputTokens: m.input_tokens || 0,
+      outputTokens: m.output_tokens || 0,
+      cost: m.cost_usd || 0,
+    }));
+  } else if (apiData && apiData.total_calls != null) {
+    // Flat summary with no per-model breakdown — show aggregate row
+    data = [{
+      model: apiData.top_model || 'All Models',
+      calls: apiData.total_calls || 0,
+      inputTokens: apiData.total_input_tokens || 0,
+      outputTokens: apiData.total_output_tokens || 0,
+      cost: apiData.estimated_cost_usd || 0,
+    }];
+  } else {
+    // Offline / no data — show zeros from state.modelPricing
+    data = state.modelPricing.map(m => ({
+      model: m.model, calls: m.calls || 0,
+      inputTokens: m.inputTokens || 0, outputTokens: m.outputTokens || 0, cost: m.used || 0,
+    }));
+  }
+
   const bars = document.getElementById('usage-bars');
   const maxCalls = Math.max(...data.map(d => d.calls), 1);
   bars.innerHTML = data.map(d => `<div class="usage-bar-row">
     <span class="usage-bar-label">${esc(d.model)}</span>
     <div class="usage-bar-wrap"><div class="usage-bar-fill" style="width:${Math.round(d.calls/maxCalls*100)}%"></div></div>
     <span class="usage-bar-val">${d.calls}</span>
-  </div>`).join('');
+  </div>`).join('') || '<div style="color:#4b5563;font-size:12px;padding:8px">No usage data yet.</div>';
   const tbody = document.getElementById('usage-tbody');
   tbody.innerHTML = data.map(d => `<tr>
     <td style="color:#e2e8f0">${esc(d.model)}</td>
     <td>${d.calls}</td>
-    <td>${(d.inputTokens/1000).toFixed(1)}K</td>
-    <td>${(d.outputTokens/1000).toFixed(1)}K</td>
-    <td style="color:#22c55e">$${d.cost.toFixed(4)}</td>
+    <td>${d.inputTokens > 1000 ? (d.inputTokens/1000).toFixed(1)+'K' : d.inputTokens}</td>
+    <td>${d.outputTokens > 1000 ? (d.outputTokens/1000).toFixed(1)+'K' : d.outputTokens}</td>
+    <td style="color:#22c55e">$${(d.cost||0).toFixed(4)}</td>
   </tr>`).join('');
-  const total = data.reduce((s, d) => s + d.cost, 0);
+  const total = data.reduce((s, d) => s + (d.cost || 0), 0);
   document.getElementById('usage-total-cost').textContent = '$' + total.toFixed(4);
-}
-
-function getSampleUsageData() {
-  // Returns zeros when not connected — real data comes via WS events
-  return state.modelPricing.map(m => ({
-    model: m.model, calls: m.calls || 0,
-    inputTokens: m.inputTokens || 0, outputTokens: m.outputTokens || 0, cost: m.used || 0,
-  }));
 }
 
 // ── Logs ──────────────────────────────────────────────────────────
@@ -2589,6 +2618,22 @@ async function toggleSkillEnabled(idx, enabled) {
     });
     appendAlert('info', (enabled ? 'Enabled' : 'Disabled') + ' skill: ' + s.name);
   } catch (_) {}
+}
+
+// ── CHUNK 4 extra: HTTP-based skill loading ───────────────────────
+// loadAndRenderSkills fetches skills from the HTTP API (works without WS)
+// then falls back to state.skills populated via WS skill_list_result.
+async function loadAndRenderSkills() {
+  try {
+    const r = await fetch('/api/skills');
+    if (r.ok) {
+      const skills = await r.json();
+      if (skills && skills.length) {
+        state.skills = skills;
+      }
+    }
+  } catch (_) {}
+  renderSkills();
 }
 
 // ── CHUNK 6: Conduit (search providers) ───────────────────────────

@@ -31,25 +31,40 @@ impl SidecarManager {
         self.ws_port
     }
 
-    /// Check if the daemon process is actually still running.
-    /// Uses try_wait() to detect crashed processes.
+    /// Check if the daemon is running — either as a child process we spawned,
+    /// or as an externally-started daemon already listening on the HTTP port.
+    ///
+    /// This handles the case where the user started `cato start` manually before
+    /// opening the desktop app: the child is None, but port 8080 is accepting
+    /// HTTP requests, so we should still report running = true.
     pub async fn is_running(&mut self) -> bool {
+        // 1. If we spawned a child, check it first
         if let Some(ref mut child) = self.child {
             match child.try_wait() {
                 Ok(Some(_status)) => {
-                    // Process has exited — clean up
+                    // Process has exited — clean up and fall through to HTTP check
                     self.child = None;
-                    false
                 }
-                Ok(None) => true,   // Still running
+                Ok(None) => return true,   // Our child is still alive
                 Err(_) => {
                     self.child = None;
-                    false
                 }
             }
-        } else {
-            false
         }
+
+        // 2. No child (never started, or it exited) — check if daemon is
+        //    reachable on the HTTP port (external process or race condition).
+        self.check_http_health().await
+    }
+
+    /// Return true if the daemon health endpoint responds with HTTP 200.
+    async fn check_http_health(&self) -> bool {
+        let url = format!("http://127.0.0.1:{}/health", self.http_port);
+        let client = reqwest::Client::new();
+        matches!(
+            client.get(&url).timeout(std::time::Duration::from_millis(800)).send().await,
+            Ok(resp) if resp.status().is_success()
+        )
     }
 
     /// Start the Cato daemon as a child process.
@@ -63,22 +78,35 @@ impl SidecarManager {
 
         let cato_bin = Self::find_cato_binary();
 
+        // Clear any stale PID file by running `cato stop` first (ignores errors)
+        log::info!("Clearing any stale Cato daemon state...");
+        let _ = Command::new(&cato_bin).args(["stop"]).output().await;
+        sleep(Duration::from_millis(500)).await;
+
         log::info!("Starting Cato daemon: {} start --channel webchat", cato_bin);
 
-        let child = Command::new(&cato_bin)
-            .args(["start", "--channel", "webchat"])
+        // Read vault password from the Cato .env file so the daemon can unlock
+        // credentials (Telegram token, API keys) without an interactive prompt.
+        let vault_password = Self::read_vault_password();
+
+        let mut cmd = Command::new(&cato_bin);
+        cmd.args(["start", "--channel", "webchat"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| {
-                format!("Failed to spawn Cato daemon ({}): {}", cato_bin, e)
-            })?;
+            .kill_on_drop(true);
+
+        if let Some(pw) = vault_password {
+            cmd.env("CATO_VAULT_PASSWORD", pw);
+        }
+
+        let child = cmd.spawn().map_err(|e| {
+            format!("Failed to spawn Cato daemon ({}): {}", cato_bin, e)
+        })?;
 
         self.child = Some(child);
 
-        // Wait for the daemon to become healthy (up to 15 seconds)
-        self.wait_for_health(15).await?;
+        // Wait for the daemon to become healthy (up to 30 seconds)
+        self.wait_for_health(30).await?;
 
         log::info!("Cato daemon is healthy on port {}", self.http_port);
         Ok(())
@@ -135,6 +163,34 @@ impl SidecarManager {
         }
     }
 
+    /// Read CATO_VAULT_PASSWORD from the Cato .env file.
+    /// Returns None if not set (daemon will start without vault access).
+    fn read_vault_password() -> Option<String> {
+        // Already set in environment — use it directly
+        if let Ok(pw) = std::env::var("CATO_VAULT_PASSWORD") {
+            if !pw.is_empty() {
+                return Some(pw);
+            }
+        }
+
+        // Try to read from the project .env file
+        let cato_dir = dirs::home_dir()?.join("Desktop").join("Cato");
+        let env_path = cato_dir.join(".env");
+        if let Ok(contents) = std::fs::read_to_string(&env_path) {
+            for line in contents.lines() {
+                if let Some(val) = line.strip_prefix("CATO_VAULT_PASSWORD=") {
+                    let pw = val.trim().to_string();
+                    if !pw.is_empty() {
+                        log::info!("Loaded CATO_VAULT_PASSWORD from .env");
+                        return Some(pw);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Find the cato binary — bundled sidecar → known install paths → PATH (dev only).
     ///
     /// Security: avoids resolving bare "cato" from CWD on Windows (PATH hijacking).
@@ -150,6 +206,7 @@ impl SidecarManager {
 
         // 2. Known absolute install locations (Windows editable pip install)
         let known_paths = [
+            r"C:\Users\Administrator\AppData\Roaming\Python\Python312\Scripts\cato.exe",
             r"C:\Users\Administrator\.local\bin\cato.exe",
             r"C:\Users\Administrator\AppData\Local\Programs\Python\Python312\Scripts\cato.exe",
             r"C:\Program Files\Python312\Scripts\cato.exe",

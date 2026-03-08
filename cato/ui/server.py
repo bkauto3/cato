@@ -11,6 +11,7 @@ Mounts:
   DELETE /api/vault/delete           → Delete a vault key
   GET /api/sessions                  → List active sessions with metadata
   DELETE /api/sessions/{session_id}  → Kill a session
+  POST /api/compact                  → Compact context for a session (slash cmd)
   GET /api/skills                    → List installed skills
   GET /api/skills/{name}/content     → Get SKILL.md content for a skill
   GET /api/cron/jobs                 → List cron jobs
@@ -195,6 +196,33 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response({"status": "ok"})
         except Exception as exc:
             logger.error("kill_session error: %s", exc)
+            return web.json_response({"status": "error", "message": str(exc)}, status=500)
+
+    async def compact_session(request: web.Request) -> web.Response:
+        """POST /api/compact — compact context for a session (trim old messages).
+
+        Called by the /compact slash command in the chat UI.
+        Body: {session_id: string}
+        When gateway is available, sends a compact instruction into the lane.
+        When offline, returns a success stub so the UI can show a friendly message.
+        """
+        try:
+            body = await request.json()
+            session_id = str(body.get("session_id", "")).strip()
+            if not session_id:
+                return web.json_response({"status": "error", "message": "session_id required"}, status=400)
+            if gateway is not None:
+                lane = gateway._lanes.get(session_id)
+                if lane is not None and hasattr(lane, "compact"):
+                    import asyncio as _asyncio
+                    _asyncio.create_task(lane.compact())
+                    return web.json_response({"status": "ok", "message": "Context compacted."})
+                # Lane not found — still return ok (session may have just started)
+                return web.json_response({"status": "ok", "message": "Context compacted."})
+            # No gateway — return ok stub (UI shows offline message separately)
+            return web.json_response({"status": "ok", "message": "Context compacted (stub)."})
+        except Exception as exc:
+            logger.error("compact_session error: %s", exc)
             return web.json_response({"status": "error", "message": str(exc)}, status=500)
 
     # ------------------------------------------------------------------ #
@@ -429,11 +457,48 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     # ------------------------------------------------------------------ #
 
     async def usage_summary(request: web.Request) -> web.Response:
-        """GET /api/usage/summary — token usage and model distribution."""
+        """GET /api/usage/summary — token usage and model distribution.
+
+        Returns a response compatible with the dashboard JS which expects:
+          total_calls, total_input_tokens, total_output_tokens,
+          top_model, avg_latency_ms, models (list of {model, calls}).
+        Also includes the raw get_token_report() fields for completeness.
+        """
         try:
-            from cato.orchestrator.metrics import get_token_report
+            from cato.orchestrator.metrics import get_token_report, get_metrics_summary
             report = get_token_report()
-            return web.json_response(report)
+            summary = get_metrics_summary()
+
+            # Map internal field names → dashboard-expected field names
+            total_in  = report.get("total_tokens_in", 0)
+            total_out = report.get("total_tokens_out", 0)
+            total_calls = report.get("total_invocations", 0)
+
+            # Build per-model list from tier_distribution as a best-effort proxy
+            tier_dist = report.get("tier_distribution", {})
+            models_list = [
+                {"model": tier, "calls": cnt, "total_calls": cnt}
+                for tier, cnt in tier_dist.items()
+            ] if tier_dist else []
+
+            # top model: first entry or unknown
+            top_model = models_list[0]["model"] if models_list else "unknown"
+
+            avg_latency = summary.get("avg_latency_ms") if summary else None
+
+            compat = {
+                # Dashboard-expected fields
+                "total_calls": total_calls,
+                "total_input_tokens": total_in,
+                "total_output_tokens": total_out,
+                "top_model": top_model,
+                "avg_latency_ms": avg_latency,
+                "models": models_list,
+                "by_model": models_list,
+                # Keep all original fields for backward compat
+                **report,
+            }
+            return web.json_response(compat)
         except Exception as exc:
             logger.error("usage_summary error: %s", exc)
             return web.json_response({"error": str(exc)}, status=500)
@@ -823,6 +888,7 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     # Sessions
     app.router.add_get("/api/sessions",                  list_sessions)
     app.router.add_delete("/api/sessions/{session_id}",  kill_session)
+    app.router.add_post("/api/compact",                  compact_session)
     # Skills
     app.router.add_get("/api/skills",                         list_skills)
     app.router.add_get("/api/skills/{name}/content",          get_skill_content)

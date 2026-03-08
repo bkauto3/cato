@@ -28,6 +28,11 @@ from typing import Any, Dict, Optional
 from aiohttp import web, WSMsgType
 
 try:
+    from cato.config import CatoConfig
+except ImportError:  # pragma: no cover
+    CatoConfig = None  # type: ignore[assignment,misc]
+
+try:
     from cato.orchestrator.metrics import track_invocation, get_token_report
 except ImportError:  # pragma: no cover
     def track_invocation(*args, **kwargs) -> None:  # type: ignore[misc]
@@ -492,7 +497,6 @@ async def get_config(request: web.Request) -> web.Response:
         }
     """
     try:
-        from cato.config import CatoConfig
         cfg = CatoConfig.load()
         enabled_models = getattr(cfg, "enabled_models", ["claude", "codex", "gemini"])
         if not isinstance(enabled_models, list):
@@ -530,7 +534,6 @@ async def patch_config(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid JSON body"}, status=400)
 
     try:
-        from cato.config import CatoConfig
         cfg = CatoConfig.load()
     except Exception as exc:
         return web.json_response({"error": f"Config load failed: {exc}"}, status=500)

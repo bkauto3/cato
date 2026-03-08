@@ -17,6 +17,7 @@ export interface ConfidenceBadgeProps {
   className?: string;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getConfidenceLevel(confidence: number): ConfidenceLevel {
   if (confidence >= 0.90) return "high";
   if (confidence >= 0.70) return "medium";
