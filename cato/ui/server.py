@@ -915,7 +915,11 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response({"error": str(exc)}, status=500)
 
     async def memory_stats(request: web.Request) -> web.Response:
-        """GET /api/memory/stats — facts count + KG node/edge counts from SQLite memories."""
+        """GET /api/memory/stats — facts count + KG node/edge counts from SQLite memories.
+
+        Also returns a 'stats' key with semantic search engine info for SettingsView
+        compatibility (chunks_indexed, model).
+        """
         try:
             import asyncio as _asyncio
             import sqlite3
@@ -946,11 +950,27 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
                 return {"facts": facts, "kg_nodes": kg_nodes, "kg_edges": kg_edges}
 
             loop = _asyncio.get_running_loop()
-            stats = await loop.run_in_executor(None, _count)
-            return web.json_response(stats)
+            db_stats = await loop.run_in_executor(None, _count)
+
+            # Also pull semantic search engine stats for SettingsView.tsx Memory tab
+            semantic_stats: dict = {"chunks_indexed": 0, "model": "all-MiniLM-L6-v2"}
+            try:
+                from cato.api.memory_routes import _get_search_engine
+                engine = _get_search_engine()
+                semantic_stats = engine.stats()
+            except Exception:
+                pass
+
+            return web.json_response({
+                **db_stats,
+                "stats": semantic_stats,
+            })
         except Exception as exc:
             logger.error("memory_stats error: %s", exc)
-            return web.json_response({"facts": 0, "kg_nodes": 0, "kg_edges": 0}, status=500)
+            return web.json_response(
+                {"facts": 0, "kg_nodes": 0, "kg_edges": 0, "stats": {"chunks_indexed": 0, "model": "all-MiniLM-L6-v2"}},
+                status=500,
+            )
 
     # ------------------------------------------------------------------ #
     # Action Guard status                                                  #
