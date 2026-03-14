@@ -214,6 +214,7 @@ class TestConfigApiYaml:
         assert reloaded["default_model"] == "openrouter/minimax/minimax-m2.5"
         assert reloaded["agent_name"] == "cato"  # existing key preserved
 
+
     def test_get_config_reads_yaml(self, tmp_path):
         """get_config reads values from the YAML file, not just in-memory defaults."""
         config_path = tmp_path / "config.yaml"
@@ -244,6 +245,21 @@ class TestConfigApiYaml:
         assert reloaded["log_level"] == "INFO"
         assert reloaded["agent_name"] == "cato"
         assert reloaded["monthly_cap"] == 20.0
+
+
+# ===========================================================================
+# BUG MEM-002: memory stats must not initialize semantic search engine
+# ===========================================================================
+
+class TestMemoryStatsFastPath:
+    """Memory stats should stay lightweight until semantic search is explicitly used."""
+
+    def test_get_search_engine_can_skip_initialization(self):
+        import cato.api.memory_routes as memory_routes
+
+        memory_routes._search_engine = None
+
+        assert memory_routes._get_search_engine(initialize=False) is None
 
 
 # ===========================================================================

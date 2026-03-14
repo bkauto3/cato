@@ -10,7 +10,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar, type View } from "./components/Sidebar";
 import { ChatView } from "./views/ChatView";
+import type { ChatConnectionStatus } from "./hooks/useChatStream";
 import { CodingAgentView } from "./views/CodingAgentView";
+import { InteractiveCLIView } from "./views/InteractiveCLIView";
 import { DashboardView } from "./views/DashboardView";
 import { SessionsView } from "./views/SessionsView";
 import { SkillsView } from "./views/SkillsView";
@@ -38,14 +40,12 @@ interface DaemonInfo {
   status: DaemonStatus;
 }
 
-// Cato gateway ports: webchat_port 8080 (HTTP), webchat_port+1 8081 (WebSocket)
-const DAEMON_HTTP_PORT = 8080;
-const DAEMON_WS_PORT   = 8081;
+const DAEMON_DEFAULT_PORT = 8080;
 
 function useDaemonInfo(): DaemonInfo {
   const [info, setInfo] = useState<DaemonInfo>({
-    httpPort: DAEMON_HTTP_PORT,
-    wsPort: DAEMON_WS_PORT,
+    httpPort: DAEMON_DEFAULT_PORT,
+    wsPort: DAEMON_DEFAULT_PORT,
     status: "starting",
   });
 
@@ -57,9 +57,13 @@ function useDaemonInfo(): DaemonInfo {
     const poll = async () => {
       while (!cancelled && attempts < maxAttempts) {
         try {
-          const status = await invoke<{ running: boolean }>("get_daemon_status");
+          const status = await invoke<{ running: boolean; http_port: number; ws_port: number }>("get_daemon_status");
           if (status.running) {
-            setInfo((prev) => ({ ...prev, status: "ready" }));
+            setInfo({
+              httpPort: status.http_port,
+              wsPort: status.ws_port,
+              status: "ready",
+            });
             return;
           }
         } catch {
@@ -93,6 +97,8 @@ function renderView(view: View, daemon: DaemonInfo, onNavigate: (v: View) => voi
           apiBase={`http://127.0.0.1:${httpPort}`}
         />
       );
+    case "interactive-cli":
+      return <InteractiveCLIView httpPort={httpPort} />;
     case "skills":
       return <SkillsView httpPort={httpPort} />;
     case "cron":
@@ -133,6 +139,7 @@ function renderView(view: View, daemon: DaemonInfo, onNavigate: (v: View) => voi
 function App() {
   const [view, setView] = useState<View>("dashboard");
   const daemon = useDaemonInfo();
+  const [chatStatus, setChatStatus] = useState<ChatConnectionStatus | "idle">("idle");
 
   // Allow child views to trigger navigation (e.g. quick-launch buttons)
   useEffect(() => {
@@ -144,12 +151,23 @@ function App() {
     return () => window.removeEventListener("cato-navigate", handler);
   }, []);
 
+  // Derive a sidebar daemon status that also reflects chat WebSocket health
+  // when the daemon is otherwise reported as ready.
+  let sidebarStatus: DaemonStatus = daemon.status;
+  if (daemon.status === "ready") {
+    if (chatStatus === "connecting" || chatStatus === "reconnecting") {
+      sidebarStatus = "starting";
+    } else if (chatStatus === "disconnected") {
+      sidebarStatus = "error";
+    }
+  }
+
   return (
     <div className="app-root app-root-sidebar">
       <Sidebar
         activeView={view}
         onNavigate={setView}
-        daemonStatus={daemon.status}
+        daemonStatus={sidebarStatus}
       />
 
       <div className="app-content">
@@ -163,7 +181,15 @@ function App() {
         {daemon.status === "ready" && (
           <main className="app-main">
             <ErrorBoundary>
-              {renderView(view, daemon, setView)}
+              {view === "chat"
+                ? (
+                  <ChatView
+                    wsBase={`127.0.0.1:${daemon.wsPort}`}
+                    httpPort={daemon.httpPort}
+                    onConnectionStatusChange={setChatStatus}
+                  />
+                  )
+                : renderView(view, daemon, setView)}
             </ErrorBoundary>
           </main>
         )}

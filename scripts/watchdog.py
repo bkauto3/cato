@@ -8,6 +8,7 @@ Run continuously:  python scripts/watchdog.py
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import socket
@@ -16,10 +17,19 @@ import sys
 import time
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-PORT: int = int(os.environ.get("CATO_PORT", "8080"))
+def _read_port_from_env() -> int:
+    """Return the configured port from env, defaulting to 8080."""
+    return int(os.environ.get("CATO_PORT", "8080"))
+
+
+PORT: int = _read_port_from_env()
 HOST: str = os.environ.get("CATO_HOST", "127.0.0.1")
 POLL_INTERVAL: int = int(os.environ.get("CATO_WATCHDOG_INTERVAL", "30"))  # seconds
 STARTUP_GRACE: int = int(os.environ.get("CATO_WATCHDOG_GRACE", "20"))     # seconds after restart (20s for Windows cold start)
@@ -147,23 +157,21 @@ def _clear_stale_pid() -> None:
 def _start_gateway() -> None:
     """Launch the Cato daemon as a detached background process.
 
-    Uses cato_svc_runner.py (the proven VPS launch method) when it exists,
-    falling back to `cato start` otherwise.
+    Prefer the compiled Cato backend so restart does not depend on the Python
+    service runner. Fall back to the CLI only if the bundled binary is missing.
     """
     log.info("Starting cato gateway...")
 
-    # Prefer the svc runner script — it handles vault password, path setup, PID file
     _REPO = Path(__file__).resolve().parent.parent
-    svc_runner = _REPO / "cato_svc_runner.py"
-    python_exe = sys.executable
+    cato_exe = _REPO / "desktop" / "src-tauri" / "target" / "release" / "binaries" / "cato.exe"
 
     try:
-        if svc_runner.exists():
-            cmd = [python_exe, str(svc_runner)]
-            log.info("Using svc runner: %s", " ".join(cmd))
+        if cato_exe.exists():
+            cmd = [str(cato_exe), "start", "--channel", "webchat"]
+            log.info("Using compiled backend: %s", " ".join(cmd))
         else:
-            cmd = ["cato", "start"]
-            log.info("Using cato start (svc runner not found)")
+            cmd = ["cato", "start", "--channel", "webchat"]
+            log.info("Using cato CLI fallback (compiled backend not found)")
 
         if sys.platform == "win32":
             subprocess.Popen(
@@ -215,4 +223,16 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Cato gateway watchdog")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Override HTTP port to monitor (defaults to CATO_PORT env or 8080).",
+    )
+    args = parser.parse_args()
+
+    if args.port is not None:
+        PORT = args.port  # type: ignore[assignment]
+
     run()

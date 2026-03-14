@@ -1,11 +1,16 @@
 """
 DisagreementSurfacer — Skill 9 (Epistemic Layer)
 
-Detects and characterises disagreement across multi-model outputs using
-character-level Jaccard similarity (no external dependencies).
+Detects and characterises disagreement across multi-model outputs.
+Uses word-level Jaccard similarity by default; optional text_similarity_fn
+(e.g. embedding-based) can be supplied for paraphrase-sensitive scoring.
+Jaccard is kept as fallback for code-heavy prompts where lexical overlap is informative.
 """
 
+from __future__ import annotations
+
 import math
+from typing import Callable, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -13,7 +18,7 @@ import math
 # ---------------------------------------------------------------------------
 
 def _jaccard(a: str, b: str) -> float:
-    """Character-level Jaccard similarity between two strings (word tokens)."""
+    """Word-level Jaccard similarity between two strings."""
     tokens_a = set(a.lower().split())
     tokens_b = set(b.lower().split())
     if not tokens_a and not tokens_b:
@@ -36,6 +41,10 @@ def _stdev(values: list[float]) -> float:
 # Main class
 # ---------------------------------------------------------------------------
 
+# Task types for which we always use Jaccard (code-heavy prompts benefit from lexical overlap)
+_JACCARD_ONLY_TASK_TYPES = frozenset(["code"])
+
+
 class DisagreementSurfacer:
     """Detect, classify, and surface disagreements across model outputs."""
 
@@ -46,9 +55,26 @@ class DisagreementSurfacer:
         "default": 0.35,
     }
 
+    def __init__(
+        self,
+        text_similarity_fn: Optional[Callable[[str, str], float]] = None,
+    ) -> None:
+        """
+        text_similarity_fn: optional (a, b) -> similarity in [0, 1].
+        When set and task_type is not "code", used for pairwise similarity
+        instead of Jaccard (e.g. embedding similarity for paraphrase robustness).
+        """
+        self._text_similarity_fn = text_similarity_fn
+
     # ------------------------------------------------------------------
     # Score computation
     # ------------------------------------------------------------------
+
+    def _pairwise_similarity(self, a: str, b: str, task_type: str) -> float:
+        """Use Jaccard for code; otherwise optional fn or Jaccard."""
+        if task_type in _JACCARD_ONLY_TASK_TYPES or self._text_similarity_fn is None:
+            return _jaccard(a, b)
+        return self._text_similarity_fn(a, b)
 
     def compute_disagreement_score(
         self,
@@ -59,24 +85,25 @@ class DisagreementSurfacer:
         """
         Compute a combined disagreement score in [0.0, 1.0].
 
-        Semantic distance: max pairwise Jaccard distance (1 - similarity).
+        Semantic distance: max pairwise (1 - similarity). Similarity is
+        Jaccard by default; if text_similarity_fn is set and task_type is not
+        "code", that fn is used (e.g. embedding similarity for paraphrases).
         Confidence divergence: population stdev of confidence values.
         Combined: 0.6 * max_semantic_distance + 0.4 * confidence_stdev.
         """
         output_values = list(outputs.values())
 
-        # Pairwise Jaccard distances
         max_distance = 0.0
         for i in range(len(output_values)):
             for j in range(i + 1, len(output_values)):
-                dist = 1.0 - _jaccard(output_values[i], output_values[j])
+                sim = self._pairwise_similarity(output_values[i], output_values[j], task_type)
+                dist = 1.0 - sim
                 if dist > max_distance:
                     max_distance = dist
 
         conf_stdev = _stdev(list(confidences.values()))
 
         combined = 0.6 * max_distance + 0.4 * conf_stdev
-        # Normalise to [0.0, 1.0]
         combined = max(0.0, min(1.0, combined))
         return round(combined, 4)
 

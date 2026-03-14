@@ -255,6 +255,7 @@ class ContextBuilder:
         daily_log_path: Optional[Path] = None,
         slot_budget: Optional[SlotBudget] = None,
         skills_dir: Optional[Path] = None,
+        distilled_summary: Optional[str] = None,
     ) -> str:
         """
         Assemble and return the system prompt string.
@@ -268,6 +269,8 @@ class ContextBuilder:
             daily_log_path: Path to today's daily log file (optional).
             slot_budget: Per-slot token ceilings.  Defaults to DEFAULT_SLOT_BUDGET.
             skills_dir: Directory containing available skills. If provided, injects a list.
+            distilled_summary: Pre-formatted summary of compacted conversation turns.
+                Injected into the memory slot before retrieved chunks.
         """
         workspace_dir = workspace_dir.expanduser().resolve()
         memory_chunks = memory_chunks or []
@@ -377,6 +380,20 @@ class ContextBuilder:
             used_tokens += tok
             remaining -= tok
             logger.debug("Included daily log %s: %d tokens", daily_log_path.name, tok)
+
+        # ---- Distilled conversation summary (compacted turns) -----------
+        if distilled_summary and remaining > 0:
+            tok = self.count_tokens(distilled_summary)
+            # Use at most half the memory slot for the distilled summary so
+            # semantic chunks are not completely crowded out
+            summary_ceiling = min(tok, budget.tier1_memory // 2, remaining)
+            if summary_ceiling > 0:
+                trimmed_summary, actual_tok = self._trim_to_budget(distilled_summary, summary_ceiling)
+                if trimmed_summary:
+                    sections.append(self._wrap("CONVERSATION_HISTORY_SUMMARY", trimmed_summary))
+                    used_tokens += actual_tok
+                    remaining -= actual_tok
+                    logger.debug("Included distilled summary: %d tokens", actual_tok)
 
         # ---- Retrieved memory chunks -------------------------------------
         if memory_chunks and remaining > 0:

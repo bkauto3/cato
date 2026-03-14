@@ -252,4 +252,4 @@ class TestPortFileWrittenByDaemon:
         source = Path(cli_mod.__file__).read_text(encoding="utf-8")
         # Both creation and deletion should be present
         assert "cato.port" in source
-        assert "_port_file.unlink" in source
+        assert ".unlink(missing_ok=True)" in source

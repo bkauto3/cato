@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cato-daemon"
-version = "0.2.0"
+dynamic = ["version"]
 description = "The AI agent daemon you can audit in a coffee break"
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,10 +30,12 @@ dependencies = [
     "websockets>=13.0",
     "croniter>=2.0",
     "python-telegram-bot>=21.0",
+    "mcp>=1.22.0",
     "patchright>=1.49.0",
     "rich>=13.0.0",
     "numpy>=1.26.0",
     "python-dotenv>=1.0.0",
+    "uvicorn>=0.38.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,10 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.0",
+]
+pty = [
+    "pywinpty>=2.0.0; sys_platform == 'win32'",
+    "ptyprocess>=0.7.0; sys_platform != 'win32'",
 ]
 
 [project.scripts]
@@ -54,6 +60,9 @@ Documentation = "https://github.com/cato-daemon/cato#readme"
 [tool.hatch.build.targets.wheel]
 packages = ["cato"]
 
+[tool.hatch.version]
+path = "cato/__init__.py"
+
 [tool.hatch.envs.default]
 dependencies = [
     "pytest>=8.0",
@@ -63,6 +72,8 @@ dependencies = [
 
 [tool.hatch.envs.default.scripts]
 test = "pytest tests/ -v --cov=cato --cov-report=term-missing"
+verify = "python scripts/verify_python_build.py"
+verify-fast = "python scripts/verify_python_build.py --skip-pytest"
 lint = "ruff check cato/"
 fmt  = "ruff format cato/"
 

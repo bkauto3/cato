@@ -653,6 +653,58 @@ class MemorySystem:
             )
         return results
 
+    def latest_distilled_turn_end(self, session_id: str) -> int:
+        """Return the highest distilled turn_end for *session_id*, or -1."""
+        row = self._conn.execute(
+            "SELECT MAX(turn_end) AS max_turn_end FROM distilled_summaries WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None or row["max_turn_end"] is None:
+            return -1
+        return int(row["max_turn_end"])
+
+    def load_recent_distillations(
+        self,
+        limit: int = 6,
+        session_id: Optional[str] = None,
+    ) -> list[dict]:
+        """Return the most recent distilled summaries, newest first."""
+        if session_id:
+            rows = self._conn.execute(
+                "SELECT * FROM distilled_summaries WHERE session_id = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (session_id, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM distilled_summaries ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "turn_start": row["turn_start"],
+                "turn_end": row["turn_end"],
+                "summary": row["summary"],
+                "key_facts": json.loads(row["key_facts"]),
+                "decisions": json.loads(row["decisions"]),
+                "open_questions": json.loads(row["open_questions"]),
+                "confidence": row["confidence"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def load_recent_corrections(self, limit: int = 6) -> list[dict]:
+        """Return the most recent correction records, newest first."""
+        rows = self._conn.execute(
+            "SELECT id, task_type, wrong_approach, correct_approach, context_hash, "
+            "session_id, timestamp FROM corrections ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     # Mem0: Fact store
     # ------------------------------------------------------------------
 

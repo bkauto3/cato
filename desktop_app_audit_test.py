@@ -307,6 +307,13 @@ def test_api_endpoints():
         else:
             record("BUG", f"API /api/diagnostics/{diag_ep}", f"HTTP {code}: {data}")
 
+    # PTY sessions (interactive CLIs)
+    code, data = api_get("/api/pty/sessions")
+    if code == 200 and isinstance(data, dict) and "sessions" in data:
+        record("PASS", "API /api/pty/sessions", f"Returns sessions list ({len(data.get('sessions', []))} active)")
+    else:
+        record("BUG", "API /api/pty/sessions", f"HTTP {code}: {data}")
+
     # Chat history
     code, data = api_get("/api/chat/history?since=0")
     if code == 200 and isinstance(data, list):
@@ -440,6 +447,7 @@ SIDEBAR_VIEWS = [
     ("dashboard", "Dashboard"),
     ("chat", "Chat"),
     ("coding-agent", "Coding Agent"),
+    ("interactive-cli", "Interactive CLIs"),
     ("skills", "Skills"),
     ("cron", "Cron Jobs"),
     ("flows", "Flows"),
@@ -495,6 +503,8 @@ def test_each_sidebar_view(page: Page, screenshots_dir: Path):
             test_chat_view(page, view_label, main_content)
         elif view_id == "coding-agent":
             test_coding_agent_view(page, view_label, main_content)
+        elif view_id == "interactive-cli":
+            test_interactive_cli_view(page, view_label, main_content)
         elif view_id == "skills":
             test_skills_view(page, view_label, main_content)
         elif view_id == "identity":
@@ -662,6 +672,36 @@ def test_coding_agent_view(page: Page, label: str, content: str):
         record("PASS", label, "Task input textarea present")
     else:
         record("WARN", label, "Task input not found")
+
+
+def test_interactive_cli_view(page: Page, label: str, content: str):
+    """Test Interactive CLIs view: tabs, Start Session, terminal pane."""
+    if page.locator(".interactive-cli-view").count() > 0:
+        record("PASS", label, "Interactive CLIs view container rendered")
+    else:
+        record("WARN", label, "Interactive CLIs view container not found")
+
+    # Tabs Claude / Codex / Gemini
+    for cli in ["Claude", "Codex", "Gemini"]:
+        tab = page.locator(f"button[role='tab']").filter(has_text=cli)
+        if tab.count() > 0:
+            record("PASS", label, f"Tab '{cli}' present")
+        else:
+            record("WARN", label, f"Tab '{cli}' not found")
+
+    # Start Session button
+    start_btn = page.locator("button").filter(has_text="Start Session")
+    if start_btn.count() > 0:
+        record("PASS", label, "Start Session button present")
+    else:
+        record("WARN", label, "Start Session button not found")
+
+    # Terminal pane container (may be empty until session started)
+    pane = page.locator(".terminal-pane")
+    if pane.count() > 0:
+        record("PASS", label, "Terminal pane container present")
+    else:
+        record("INFO", label, "Terminal pane not yet mounted (start session to connect)")
 
 
 def test_skills_view(page: Page, label: str, content: str):

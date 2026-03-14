@@ -11,6 +11,15 @@ Processes one inbound message per session:
   7. Persist JSONL transcript at ~/.cato/{agent_id}/sessions/{session_id}.jsonl
   8. Store final response in memory (memory.astore)
   9. Return (final_text, cost_footer)
+
+Compaction:
+  - Triggered when history tokens > COMPACT_TOKEN_THRESHOLD (2500) or
+    total turns > COMPACT_TURN_THRESHOLD (30).
+  - Old turns are distilled via Distiller (heuristic, no LLM call) and
+    stored in the distilled_summaries SQLite table.
+  - The transcript is then truncated to the last HISTORY_WINDOW turns.
+  - The distilled summary is injected into the system prompt via
+    ContextBuilder.build_system_prompt(distilled_summary=...).
 """
 
 from __future__ import annotations
@@ -41,6 +50,17 @@ _CATO_DIR       = get_data_dir()
 _CHARS_PER_TOKEN = 4
 _MAX_RETRIES    = 3
 _RETRY_BASE_DELAY = 1.5  # seconds; doubles each retry
+
+# ---------------------------------------------------------------------------
+# Compaction constants
+# ---------------------------------------------------------------------------
+
+# Number of recent turns kept live after compaction
+HISTORY_WINDOW: int = 12
+# Trigger compaction when history token cost exceeds this threshold
+COMPACT_TOKEN_THRESHOLD: int = 2500
+# Trigger compaction when total turn count exceeds this threshold
+COMPACT_TURN_THRESHOLD: int = 30
 
 
 # ---------------------------------------------------------------------------
@@ -410,36 +430,58 @@ class AgentLoop:
             else _CATO_DIR / agent_id / "workspace"
         )
         daily_log = _CATO_DIR / agent_id / "memory" / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.md"
-        skills_dir = _CATO_DIR.parent / ".cato" / "skills"  # ~/.cato/skills
+        skills_dir = Path.home() / ".cato" / "skills"  # ~/.cato/skills
+
+        # Compact old turns before building context — fires when token or turn
+        # thresholds are exceeded, storing distilled summary in SQLite.
+        await self._maybe_compact(tpath, session_id)
 
         memory_chunks = await self._memory.asearch(message, top_k=4)
+
+        # Load most recent distilled summary (if any) for this session so
+        # ContextBuilder can inject it into the system prompt.
+        distilled_summary = self._load_distilled_summary(session_id)
+
         system_prompt = self._ctx.build_system_prompt(
             workspace_dir=workspace,
             memory_chunks=memory_chunks,
             daily_log_path=daily_log if daily_log.exists() else None,
             skills_dir=skills_dir if skills_dir.exists() else None,
+            distilled_summary=distilled_summary,
         )
+
+        # DEBUG: Confirm skills are in system prompt
+        has_skills = "Available Skills" in system_prompt
+        has_conduit = "conduit" in system_prompt.lower()
+        logger.info("SYSTEM_PROMPT: skills_section=%s conduit=%s", has_skills, has_conduit)
 
         ctx_tokens  = self._ctx.count_tokens(system_prompt)
         history_len = self._history_len(tpath)
         complexity  = self._router.score_task(message, ctx_tokens, history_len)
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
-        messages.extend(self._recent_turns(tpath, limit=20))
+        messages.extend(self._recent_turns(tpath, limit=HISTORY_WINDOW))
         messages.append({"role": "user", "content": message})
 
-        # Model selection — delegate to SwarmSync when available
+        # Model selection and optional SwarmSync completion.
+        # SwarmSync always executes a full completion even when routing_only is
+        # requested, so we reuse that response for the first planning turn to
+        # avoid paying twice.  Skills are preserved because the system prompt is
+        # included in the messages array sent to SwarmSync.
         swarm_key = (self._vault.get("SWARM_SYNC_API_KEY") or
                      self._vault.get("SWARMSYNC_API_KEY"))
-        swarmsync_content: Optional[str] = None
+        swarmsync_prefill: str = ""  # completion text from SwarmSync (if any)
+        logger.info("session=%s swarmsync_enabled=%s swarm_key_present=%s",
+                    session_id, self._cfg.swarmsync_enabled, bool(swarm_key))
         if self._cfg.swarmsync_enabled and swarm_key:
-            model, swarmsync_content = await self._router._swarmsync_route(
+            model, swarmsync_prefill = await self._router._swarmsync_complete(
                 messages, swarm_key, complexity
             )
         else:
             model = self._router.select_model(complexity)
 
-        logger.info("session=%s model=%s complexity=%.2f", session_id, model, complexity)
+        logger.info("session=%s model=%s complexity=%.2f swarmsync_prefill=%d",
+                    session_id, model, complexity, len(swarmsync_prefill))
 
         await _aappend(tpath, {
             "ts": _now(), "role": "user",
@@ -450,20 +492,6 @@ class AgentLoop:
         planning_turns = 0
         final_text = ""
         total_cost = 0.0
-
-        # If SwarmSync returned a full response, use it directly
-        if swarmsync_content is not None:
-            await _aappend(tpath, {
-                "ts": _now(), "role": "assistant", "content": swarmsync_content,
-                "tool_calls": [], "cost_usd": 0.0,
-                "model": model, "session_id": session_id,
-            })
-            _t = asyncio.create_task(
-                self._memory.astore(f"Q: {message}\nA: {swarmsync_content}", source_file=session_id),
-                name="memory-store",
-            )
-            self._bg_tasks.add(_t)
-            return swarmsync_content, self._budget.format_footer(), model
 
         while True:
             if planning_turns >= self._cfg.max_planning_turns:
@@ -486,7 +514,23 @@ class AgentLoop:
             total_cost += call_cost
 
             force = planning_turns >= self._cfg.max_planning_turns
-            text, tool_calls = await self._stream_collect(messages, model, force)
+
+            # On the very first planning turn, use the SwarmSync completion
+            # response directly (it already ran the full call with our system
+            # prompt).  Subsequent turns (tool-call follow-ups) go through the
+            # normal local router.
+            if swarmsync_prefill and planning_turns == 0:
+                text = swarmsync_prefill
+                swarmsync_prefill = ""  # consume once
+                tool_calls = [] if force else _parse_tool_calls_text(text)
+                text = _TOOL_CALL_RE.sub("", text).strip()
+                if not text and not tool_calls:
+                    text = (
+                        "The model returned no readable content. "
+                        "Try rephrasing your message."
+                    )
+            else:
+                text, tool_calls = await self._stream_collect(messages, model, force)
 
             await _aappend(tpath, {
                 "ts": _now(), "role": "assistant", "content": text,
@@ -553,6 +597,144 @@ class AgentLoop:
         return final_text, self._budget.format_footer(), model
 
     # ------------------------------------------------------------------
+    # Compaction helpers
+    # ------------------------------------------------------------------
+
+    async def _maybe_compact(self, tpath: Path, session_id: str) -> None:
+        """
+        Compact the JSONL transcript when it exceeds token/turn thresholds.
+
+        Reads all turns, checks if compaction is needed, distils the oldest
+        turns (everything except the last HISTORY_WINDOW), stores the result
+        in distilled_summaries, and rewrites the transcript to contain only
+        the recent window.
+
+        This is a no-op when the transcript does not exist or is within limits.
+        """
+        if not tpath.exists():
+            return
+
+        try:
+            lines = tpath.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+
+        # Parse all valid JSONL records
+        records: list[dict] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+        total_turns = len(records)
+        if total_turns <= HISTORY_WINDOW:
+            return  # nothing to compact
+
+        # Count tokens in the full history to decide whether compaction is needed
+        history_text = "\n".join(r.get("content", "") for r in records if r.get("role") in ("user", "assistant"))
+        history_tokens = self._ctx.count_tokens(history_text)
+
+        needs_compact = (
+            history_tokens > COMPACT_TOKEN_THRESHOLD
+            or total_turns > COMPACT_TURN_THRESHOLD
+        )
+        if not needs_compact:
+            return
+
+        # Split: turns to distil vs turns to keep live
+        keep_start = max(0, total_turns - HISTORY_WINDOW)
+        old_records = records[:keep_start]
+        recent_records = records[keep_start:]
+
+        logger.info(
+            "Compacting session=%s: %d total turns → distilling %d, keeping %d (history_tokens=%d)",
+            session_id, total_turns, len(old_records), len(recent_records), history_tokens,
+        )
+
+        # Distil old turns using heuristic extractor (no LLM call)
+        try:
+            from .core.distiller import Distiller
+            distiller = Distiller()
+            distil_turns = [
+                {"role": r.get("role", ""), "content": r.get("content", "")}
+                for r in old_records
+                if r.get("role") in ("user", "assistant")
+            ]
+            result = distiller.distill(
+                session_id=session_id,
+                turns=distil_turns,
+                turn_start=0,
+            )
+            if result is not None:
+                await asyncio.get_running_loop().run_in_executor(
+                    None, self._memory.store_distillation, result
+                )
+                logger.info(
+                    "Distilled session=%s turns 0-%d: summary=%d chars, facts=%d, decisions=%d",
+                    session_id, len(old_records) - 1,
+                    len(result.summary), len(result.key_facts), len(result.decisions),
+                )
+        except Exception as exc:
+            logger.warning("Distillation failed (non-fatal): %s", exc)
+
+        # Rewrite transcript to only the recent window
+        try:
+            new_content = "\n".join(json.dumps(r, ensure_ascii=True) for r in recent_records) + "\n"
+            await asyncio.get_running_loop().run_in_executor(
+                None, tpath.write_text, new_content, "utf-8"
+            )
+        except OSError as exc:
+            logger.warning("Transcript rewrite failed: %s", exc)
+
+    def _load_distilled_summary(self, session_id: str) -> Optional[str]:
+        """
+        Load the most recent distilled summary for *session_id* and format it
+        as a compact context block.  Returns None if no summaries exist.
+        """
+        try:
+            rows = self._memory.load_recent_distillations(session_id=session_id, limit=3)
+        except Exception:
+            return None
+
+        if not rows:
+            return None
+
+        parts: list[str] = ["## Conversation History Summary (compacted)"]
+        for row in reversed(rows):  # oldest first
+            summary = row.get("summary") or ""
+            facts_raw = row.get("key_facts") or "[]"
+            decisions_raw = row.get("decisions") or "[]"
+            questions_raw = row.get("open_questions") or "[]"
+
+            try:
+                facts = json.loads(facts_raw) if isinstance(facts_raw, str) else facts_raw
+            except (json.JSONDecodeError, TypeError):
+                facts = []
+            try:
+                decisions = json.loads(decisions_raw) if isinstance(decisions_raw, str) else decisions_raw
+            except (json.JSONDecodeError, TypeError):
+                decisions = []
+            try:
+                questions = json.loads(questions_raw) if isinstance(questions_raw, str) else questions_raw
+            except (json.JSONDecodeError, TypeError):
+                questions = []
+
+            if summary:
+                parts.append(f"**Summary:** {summary}")
+            if facts:
+                parts.append("**Key facts:** " + "; ".join(str(f) for f in facts[:5]))
+            if decisions:
+                parts.append("**Decisions:** " + "; ".join(str(d) for d in decisions[:5]))
+            if questions:
+                parts.append("**Open questions:** " + "; ".join(str(q) for q in questions[:3]))
+
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
     # Streaming
     # ------------------------------------------------------------------
 
@@ -569,6 +751,12 @@ class AgentLoop:
                 full = "".join(chunks)
                 calls = [] if force_text else _parse_tool_calls_text(full)
                 visible = _TOOL_CALL_RE.sub("", full).strip()
+                # If we got no text and no tool calls (e.g. provider only sent model slug and we filtered it)
+                if not visible and not calls:
+                    visible = (
+                        "The model returned no readable content. "
+                        "Try rephrasing your message or check that the model is responding correctly."
+                    )
                 return visible, calls
             except Exception as exc:
                 if attempt < _MAX_RETRIES - 1:

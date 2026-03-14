@@ -3,17 +3,50 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, type FormEvent } from "react";
-import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
+import { useChatStream, type ChatMessage, type ChatConnectionStatus } from "../hooks/useChatStream";
 import logoSrc from "../assets/cato-logo.png";
 
 interface ChatViewProps {
   wsBase?: string;
   httpPort?: number;
+  onConnectionStatusChange?: (status: ChatConnectionStatus) => void;
 }
 
 interface BadgeProps {
   source?: string;
   model?: string;
+}
+
+const DEFAULT_MODELS = new Set([
+  "openrouter/minimax/minimax-m2.5",
+  "openrouter/minimax/minimax-2.5",
+  "minimax/minimax-m2.5",
+  "minimax/minimax-2.5",
+  "abab7-chat-preview",
+]);
+
+function normalizeModelLabel(model: string): string {
+  const raw = model.trim();
+  if (!raw) return "";
+  // Don't show a badge for the default model — it's just noise
+  if (DEFAULT_MODELS.has(raw.toLowerCase())) return "";
+
+  const upper = raw.toUpperCase();
+  // Friendly aliases for notable backends
+  if (upper.includes("CLAUDE")) return "CLAUDE";
+  if (upper.includes("CODEX")) return "CODEX";
+  if (upper.includes("GEMINI")) return "GEMINI";
+  if (upper.includes("CURSOR")) return "CURSOR";
+  if (upper.includes("SWARMSYNC")) return "SWARMSYNC";
+  if (upper.includes("MINIMAX")) return "MINIMAX";
+  if (upper.includes("GPT")) return "GPT";
+
+  // openrouter/provider/model → last segment
+  const parts = upper.split("/");
+  if (parts.length > 1) {
+    return parts[parts.length - 1];
+  }
+  return upper;
 }
 
 const SourceBadge: React.FC<BadgeProps> = ({ source, model }) => {
@@ -34,7 +67,8 @@ const SourceBadge: React.FC<BadgeProps> = ({ source, model }) => {
   }
 
   if (model) {
-    const modelLabel = model.toUpperCase();
+    const modelLabel = normalizeModelLabel(model);
+    if (modelLabel) {
     const modelColors: Record<string, string> = {
       "CLAUDE": "#9B5DE5",
       "CODEX": "#00D9FF",
@@ -51,7 +85,8 @@ const SourceBadge: React.FC<BadgeProps> = ({ source, model }) => {
       }}>
         {modelLabel}
       </span>
-    );
+      );
+    }
   }
 
   return badges.length > 0 ? <>{badges}</> : null;
@@ -78,7 +113,7 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
   );
 };
 
-export const ChatView: React.FC<ChatViewProps> = ({ wsBase, httpPort }) => {
+export const ChatView: React.FC<ChatViewProps> = ({ wsBase, httpPort, onConnectionStatusChange }) => {
   const { messages, connectionStatus, sendMessage, isStreaming, clearHistory } =
     useChatStream(wsBase, httpPort);
   const [input, setInput] = useState("");
@@ -88,6 +123,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ wsBase, httpPort }) => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Bubble connection status up to the parent so the sidebar daemon status
+  // can stay in sync with the chat WebSocket connection.
+  useEffect(() => {
+    if (onConnectionStatusChange) {
+      onConnectionStatusChange(connectionStatus);
+    }
+  }, [connectionStatus, onConnectionStatusChange]);
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {

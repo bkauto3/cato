@@ -1,7 +1,7 @@
 /**
  * useChatStream.ts — WebSocket hook for the general chat view.
  *
- * - Connects to the gateway WebSocket (ws://127.0.0.1:8081/ws) for web chat
+ * - Connects to the daemon's aiohttp WebSocket surface (ws://127.0.0.1:8080/ws) for web chat
  * - Persists messages to localStorage so they survive view navigation
  * - Polls /api/chat/history every 5 s to surface Telegram messages in the UI
  */
@@ -131,8 +131,8 @@ export function useChatStream(wsBase?: string, httpPort?: number): UseChatStream
   }, [httpPort, addMessages]);
 
   const connect = useCallback(() => {
-    const rawHost = wsBase ?? "127.0.0.1:8081";
-    const host = /^127\.0\.0\.1:\d+$/.test(rawHost) ? rawHost : "127.0.0.1:8081";
+    const rawHost = wsBase ?? "127.0.0.1:8080";
+    const host = /^127\.0\.0\.1:\d+$/.test(rawHost) ? rawHost : "127.0.0.1:8080";
     const url = `ws://${host}/ws`;
 
     setConnectionStatus("connecting");
@@ -151,8 +151,25 @@ export function useChatStream(wsBase?: string, httpPort?: number): UseChatStream
 
         if (data.type === "health" || data.type === "heartbeat") return;
 
+        // Handle incoming user messages (from Telegram/WhatsApp)
+        if (data.type === "message" && data.role === "user") {
+          const msg: ChatMessage = {
+            id:        crypto.randomUUID(),
+            role:      "user",
+            text:      data.text ?? "",
+            timestamp: Date.now(),
+            source:    data.channel ?? "web",
+          };
+          addMessages([msg]);
+          return;
+        }
+
+        // Handle assistant responses
         if (data.type === "response" || data.text || data.reply) {
-          const text = data.text ?? data.reply ?? data.message ?? JSON.stringify(data);
+          const rawText = data.text ?? data.reply ?? data.message ?? "";
+          const text = rawText.trim()
+            ? rawText
+            : "I didn't get a response from the model. Please try again.";
           const msg: ChatMessage = {
             id:        crypto.randomUUID(),
             role:      "assistant",

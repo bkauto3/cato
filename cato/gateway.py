@@ -5,7 +5,7 @@ cato/gateway.py — Central message bus for CATO.
 - Routes messages to per-session FIFO LaneQueues (never interleave sessions)
 - Drives the AgentLoop for each task
 - Sends responses back to the originating channel adapter
-- Exposes a WebSocket + REST server on 127.0.0.1:8080
+- Exposes HTTP + WebSocket routes via aiohttp on 127.0.0.1:8080
 - Fires cron-scheduled tasks into lane queues via croniter
 """
 
@@ -22,6 +22,7 @@ from typing import Any, Optional
 from .budget import BudgetExceeded, BudgetManager
 from .config import CatoConfig
 from .heartbeat import HeartbeatMonitor
+from .core.memory_upkeep import MemoryUpkeepService
 from .node import NodeManager
 from .platform import get_data_dir
 from .vault import Vault
@@ -29,8 +30,6 @@ from .vault import Vault
 logger = logging.getLogger(__name__)
 
 _CATO_DIR      = get_data_dir()
-_WS_HOST       = "127.0.0.1"
-_WS_PORT       = 8081   # default; overridden by config.webchat_port + 1
 _LANE_QUEUE_MAX = 64
 
 # ---------------------------------------------------------------------------
@@ -161,6 +160,8 @@ class Gateway:
         # Shared cross-channel message history (ring buffer, max 200 entries)
         self._message_history: list[dict] = []
         self._message_history_max: int = 200
+        # One-shot response futures used by remote MCP calls.
+        self._pending_responses: dict[str, list[asyncio.Future[dict[str, Any]]]] = {}
 
     def register_adapter(self, adapter: Any) -> None:
         """Register a channel adapter (must expose start/stop/send)."""
@@ -173,7 +174,7 @@ class Gateway:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start adapters, WebSocket server, and cron scheduler."""
+        """Start adapters, cron scheduler, and background monitors."""
         self._start_time = time.monotonic()
         # NOTE: Agent loop is initialized lazily on first message (_ensure_agent_loop),
         # NOT here at startup.  sentence_transformers/PyTorch import takes 15-30s and
@@ -189,17 +190,18 @@ class Gateway:
                     name=f"adapter-{type(adapter).__name__}",
                 )
             )
-        self._bg_tasks.append(asyncio.create_task(self._run_websocket_server(), name="websocket-server"))
         self._bg_tasks.append(asyncio.create_task(self._run_cron_scheduler(), name="cron-scheduler"))
         # Heartbeat monitor — checks HEARTBEAT.md for every agent on a schedule
         hb_monitor = HeartbeatMonitor(self, _CATO_DIR)
         self._bg_tasks.append(asyncio.create_task(hb_monitor.run_forever(), name="heartbeat-monitor"))
         self._heartbeat_monitor = hb_monitor
+        memory_upkeep = MemoryUpkeepService(self._cfg)
+        self._bg_tasks.append(asyncio.create_task(memory_upkeep.run_forever(), name="memory-upkeep"))
         # Node keepalive pinger — proactively pings registered nodes so stale ones are evicted
         self._bg_tasks.append(asyncio.create_task(self._nodes.run_ping_loop(), name="node-pinger"))
         # BUG FIX HB-001: heartbeat poster — POSTs to /api/heartbeat every 30s
         self._bg_tasks.append(asyncio.create_task(self._run_heartbeat_poster(), name="heartbeat-poster"))
-        logger.info("Gateway started — ws://%s:%d", _WS_HOST, _WS_PORT)
+        logger.info("Gateway started — websocket clients served via aiohttp /ws")
 
     async def _start_adapter(self, adapter: Any) -> None:
         """Start a single adapter with a 30s timeout, logging any errors."""
@@ -250,6 +252,14 @@ class Gateway:
                      agent_id: str = "") -> None:
         """Called by adapters when a user message arrives. Routes to lane queue."""
         self._append_history("user", message, channel, session_id)
+        # Broadcast incoming message to WebSocket clients (desktop app)
+        if channel in ("telegram", "whatsapp"):
+            await self._ws_broadcast({
+                "type": "message", "session_id": session_id,
+                "text": message,
+                "channel": channel,
+                "role": "user",
+            })
         lane = self._get_or_create_lane(session_id)
         await lane.enqueue({
             "session_id": session_id,
@@ -258,23 +268,77 @@ class Gateway:
             "agent_id":   agent_id or self._cfg.agent_name,
         })
 
+    async def request_response(
+        self,
+        session_id: str,
+        message: str,
+        channel: str = "mcp",
+        agent_id: str = "",
+    ) -> dict[str, Any]:
+        """Send a one-off message through the gateway and await the final reply."""
+        loop = asyncio.get_running_loop()
+        reply_future: asyncio.Future[dict[str, Any]] = loop.create_future()
+        self._pending_responses.setdefault(session_id, []).append(reply_future)
+
+        lane = self._get_or_create_lane(session_id)
+        self._append_history("user", message, channel, session_id)
+        await lane.enqueue(
+            {
+                "session_id": session_id,
+                "message": message,
+                "channel": channel,
+                "agent_id": agent_id or self._cfg.agent_name,
+                "reply_future": reply_future,
+            }
+        )
+
+        try:
+            return await asyncio.wait_for(reply_future, timeout=190.0)
+        finally:
+            waiters = self._pending_responses.get(session_id, [])
+            if reply_future in waiters:
+                waiters.remove(reply_future)
+            if not waiters:
+                self._pending_responses.pop(session_id, None)
+
     async def send(self, session_id: str, text: str, channel: str, model: str = "") -> None:
         """Called by agent loop to deliver a response to the originating channel."""
         # BUG FIX CHAT-001/CHAT-002: strip tool call XML and budget footer
         clean_text = strip_tool_calls(text)
+        # Safety net: never broadcast a completely empty assistant message. Some
+        # providers occasionally return only metadata (e.g. model slugs or
+        # tool-call shells) which strip down to empty. In those cases, surface a
+        # clear fallback so the UI never shows a blank bubble.
+        if not str(clean_text).strip():
+            clean_text = (
+                "The model returned no readable content. "
+                "Try rephrasing your message or check that the model is responding correctly."
+            )
         self._append_history("assistant", clean_text, channel, session_id)
-        if channel in ("web", "cron", "heartbeat"):
+        if channel in ("web", "cron", "heartbeat", "telegram", "whatsapp"):
             await self._ws_broadcast({
                 "type": "response", "session_id": session_id,
                 "text": clean_text,
                 "channel": channel,
                 "model": model,
             })
+            # For non-web channels, also send to the adapter
+            if channel not in ("web", "cron", "heartbeat"):
+                for adapter in self._adapters:
+                    if adapter.channel_name == channel.lower():
+                        try:
+                            # Always deliver the cleaned text to adapters so
+                            # users do not see internal tool-call XML or cost
+                            # footers in Telegram/WhatsApp chats.
+                            await adapter.send(session_id, clean_text)
+                        except Exception as exc:
+                            logger.error("Adapter send error (%s): %s", channel, exc)
+                        return
             return
         for adapter in self._adapters:
             if adapter.channel_name == channel.lower():
                 try:
-                    await adapter.send(session_id, text)
+                    await adapter.send(session_id, clean_text)
                 except Exception as exc:
                     logger.error("Adapter send error (%s): %s", channel, exc)
                 return
@@ -288,6 +352,7 @@ class Gateway:
         session_id = task["session_id"]
         channel    = task["channel"]
         agent_id   = task.get("agent_id", self._cfg.agent_name)
+        reply_future: asyncio.Future[dict[str, Any]] | None = task.get("reply_future")
 
         # Clawflows: if task has 'flow' key, route to FlowEngine (Skill 5)
         if "flow" in task:
@@ -300,10 +365,17 @@ class Gateway:
             if self._agent_loop is None:
                 await self.send(session_id, "[error: agent loop failed to initialise]", channel)
                 return
-            result = await self._agent_loop.run(
-                session_id=session_id,
-                message=task["message"],
-                agent_id=agent_id,
+            # Guard against long-running or stuck tool calls by imposing a
+            # per-task timeout. This prevents Telegram / desktop sessions
+            # from appearing "frozen" indefinitely when a subprocess hangs.
+            import asyncio as _asyncio
+            result = await _asyncio.wait_for(
+                self._agent_loop.run(
+                    session_id=session_id,
+                    message=task["message"],
+                    agent_id=agent_id,
+                ),
+                timeout=180.0,
             )
             # Unpack (text, footer, model) or legacy (text, footer)
             if isinstance(result, tuple):
@@ -316,12 +388,44 @@ class Gateway:
                 text = str(result)
                 footer = ""
                 model = ""
-            await self.send(session_id, f"{text}\n\n{footer}".strip(), channel, model=model)
+            final_text = f"{text}\n\n{footer}".strip()
+            clean_text = strip_tool_calls(final_text)
+            await self.send(session_id, final_text, channel, model=model)
+            if reply_future is not None and not reply_future.done():
+                reply_future.set_result(
+                    {
+                        "session_id": session_id,
+                        "channel": channel,
+                        "reply": clean_text,
+                        "model": model,
+                    }
+                )
         except BudgetExceeded as exc:
-            await self.send(session_id, f"Budget cap reached: {exc}", channel)
+            text = f"Budget cap reached: {exc}"
+            await self.send(session_id, text, channel)
+            if reply_future is not None and not reply_future.done():
+                reply_future.set_result(
+                    {"session_id": session_id, "channel": channel, "reply": text, "model": ""}
+                )
+        except asyncio.TimeoutError:
+            logger.error("session=%s processing timed out after 180s", session_id)
+            text = (
+                "I ran into a long-running tool call and had to abort after 3 minutes. "
+                "You can try again or simplify the request."
+            )
+            await self.send(session_id, text, channel)
+            if reply_future is not None and not reply_future.done():
+                reply_future.set_result(
+                    {"session_id": session_id, "channel": channel, "reply": text, "model": ""}
+                )
         except Exception as exc:
             logger.error("session=%s processing error: %s", session_id, exc, exc_info=True)
-            await self.send(session_id, f"[internal error: {exc}]", channel)
+            text = f"[internal error: {exc}]"
+            await self.send(session_id, text, channel)
+            if reply_future is not None and not reply_future.done():
+                reply_future.set_result(
+                    {"session_id": session_id, "channel": channel, "reply": text, "model": ""}
+                )
 
     async def _process_flow_task(self, task: dict) -> None:
         """Route a task dict with 'flow' key to FlowEngine (Skill 5 — Clawflows)."""
@@ -355,38 +459,6 @@ class Gateway:
             lane.start()
             self._lanes[session_id] = lane
         return self._lanes[session_id]
-
-    # ------------------------------------------------------------------
-    # WebSocket server  (ws://127.0.0.1:8081)
-    # ------------------------------------------------------------------
-
-    async def _run_websocket_server(self) -> None:
-        try:
-            import websockets
-        except ImportError:
-            logger.error("websockets not installed — WebSocket server disabled")
-            return
-
-        async def handler(ws: Any, path: str = "/") -> None:
-            self._ws_clients.add(ws)
-            try:
-                async for raw in ws:
-                    await self._handle_ws_message(ws, raw)
-            except Exception:
-                pass
-            finally:
-                self._ws_clients.discard(ws)
-                self._nodes.remove_by_ws(ws)
-
-        ws_port = getattr(self._cfg, "webchat_port", None) or _WS_PORT
-        ws_port = ws_port + 1  # HTTP uses webchat_port, WS uses webchat_port+1
-        try:
-            async with websockets.serve(handler, _WS_HOST, ws_port):
-                await asyncio.Future()
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            logger.error("WebSocket server error: %s", exc)
 
     @staticmethod
     async def _ws_send(ws: Any, payload: dict) -> None:

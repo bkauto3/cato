@@ -1,41 +1,110 @@
 # Cato Desktop Build Script
-# Sets up MSVC environment and runs npx tauri build
+# Discovers Visual Studio Build Tools via vswhere/VsDevCmd and runs `npx tauri build`.
 
-$MSVC_VER = '14.44.35207'
-$SDK_VER = '10.0.26100.0'
-$VS_BASE = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
-$MSVC_BIN = "$VS_BASE\VC\Tools\MSVC\$MSVC_VER\bin\HostX64\x64"
-$SDK_BIN = "C:\Program Files (x86)\Windows Kits\10\bin\$SDK_VER\x64"
-$SDK_LIB = "C:\Program Files (x86)\Windows Kits\10\Lib\$SDK_VER"
-$MSVC_LIB = "$VS_BASE\VC\Tools\MSVC\$MSVC_VER\lib\x64"
-$MSVC_INC = "$VS_BASE\VC\Tools\MSVC\$MSVC_VER\include"
-$SDK_INC = "C:\Program Files (x86)\Windows Kits\10\Include\$SDK_VER"
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
-$env:PATH = "$MSVC_BIN;$SDK_BIN;$env:USERPROFILE\.cargo\bin;C:\Program Files\nodejs;C:\Program Files\Git\bin;$env:PATH"
-$env:LIB = "$MSVC_LIB;$SDK_LIB\um\x64;$SDK_LIB\ucrt\x64"
-$env:INCLUDE = "$MSVC_INC;$SDK_INC\um;$SDK_INC\ucrt;$SDK_INC\shared"
+function Write-Step([string]$Message) {
+    Write-Host "`n$Message" -ForegroundColor Yellow
+}
+
+function Find-VsWhere {
+    $fromPath = Get-Command vswhere.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+    $candidates = @(
+        $fromPath,
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+    if (-not $candidates) {
+        throw "vswhere.exe not found. Install Visual Studio 2022 Build Tools or Visual Studio 2022."
+    }
+
+    return @($candidates)[0]
+}
+
+function Import-VsDevEnvironment {
+    $vswhere = Find-VsWhere
+    $installPath = & $vswhere `
+        -latest `
+        -products * `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath
+
+    if (-not $installPath) {
+        throw "No Visual Studio installation with C++ Build Tools was found."
+    }
+
+    $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
+    if (-not (Test-Path $vsDevCmd)) {
+        throw "VsDevCmd.bat not found at $vsDevCmd"
+    }
+
+    $envDump = & cmd.exe /s /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
+    if ($LASTEXITCODE -ne 0) {
+        throw "VsDevCmd.bat failed to initialize the MSVC environment."
+    }
+
+    foreach ($line in $envDump) {
+        if ($line -match "^(.*?)=(.*)$") {
+            Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2]
+        }
+    }
+
+    return $installPath
+}
+
+function Assert-Command([string]$Name, [string]$Hint) {
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        throw "$Name not found. $Hint"
+    }
+    return $cmd
+}
+
+function Assert-TauriCli {
+    & npx tauri --version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tauri CLI is unavailable. Run `npm ci` in desktop/ and ensure @tauri-apps/cli is installed."
+    }
+}
+
+$desktopDir = $PSScriptRoot
+Set-Location $desktopDir
 
 Write-Host "=== Cato Desktop Build ===" -ForegroundColor Cyan
-Write-Host "MSVC: $MSVC_VER"
-Write-Host "SDK:  $SDK_VER"
 
-# Verify cl.exe is reachable
-$clPath = "$MSVC_BIN\cl.exe"
-if (-not (Test-Path $clPath)) {
-    Write-Error "cl.exe not found at $clPath"
-    exit 1
+Write-Step "Syncing desktop manifests to the canonical Cato version..."
+python ..\scripts\sync_version.py --write
+if ($LASTEXITCODE -ne 0) {
+    throw "version sync failed"
 }
-Write-Host "cl.exe: OK" -ForegroundColor Green
 
-Set-Location "$PSScriptRoot"
+$vsInstallPath = Import-VsDevEnvironment
+Write-Host "Visual Studio: $vsInstallPath" -ForegroundColor Green
 
-Write-Host "`nInstalling npm dependencies..." -ForegroundColor Yellow
-npm install
-if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed"; exit 1 }
+$nodeCmd = Assert-Command "node.exe" "Install Node.js 20+."
+$cargoCmd = Assert-Command "cargo.exe" "Install Rust with the stable MSVC toolchain."
+$npmCmd = Assert-Command "npm.cmd" "Install Node.js 20+."
+$clCmd = Assert-Command "cl.exe" "Install Visual Studio 2022 Build Tools with Desktop development for C++."
 
-Write-Host "`nBuilding Tauri app..." -ForegroundColor Yellow
+Write-Host "Node:  $($nodeCmd.Source)" -ForegroundColor Green
+Write-Host "Cargo: $($cargoCmd.Source)" -ForegroundColor Green
+Write-Host "npm:   $($npmCmd.Source)" -ForegroundColor Green
+Write-Host "cl:    $($clCmd.Source)" -ForegroundColor Green
+
+Write-Step "Installing npm dependencies with npm ci..."
+npm ci
+if ($LASTEXITCODE -ne 0) {
+    throw "npm ci failed. Stop any running Vite/Node processes that are locking desktop\\node_modules and retry."
+}
+
+Assert-TauriCli
+
+Write-Step "Building Tauri app..."
 npx tauri build
-if ($LASTEXITCODE -ne 0) { Write-Error "tauri build failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+    throw "tauri build failed"
+}
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "EXE:  src-tauri\target\release\cato-desktop.exe"

@@ -1,16 +1,38 @@
 """Minimal runner script for the Cato daemon — used by Task Scheduler / NSSM."""
-import os, sys, logging
+import io
+import logging
+import os
+import sys
 from pathlib import Path
 
 os.chdir(r"C:\Users\Administrator\Desktop\Cato")
 sys.path.insert(0, r"C:\Users\Administrator\Desktop\Cato")
 
+_DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "cato"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_DAEMON_LOG = _DATA_DIR / "daemon_runner.log"
+
 # Vault password — baked in so no env var needed when run as SYSTEM
 os.environ.setdefault("CATO_VAULT_PASSWORD", "mypassword123")
+
+# Hidden/background launches on Windows can have no real stdout/stderr.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")  # type: ignore[assignment]
+elif getattr(sys.stdout, "closed", False):
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")  # type: ignore[assignment]
+
+if sys.stderr is None:
+    sys.stderr = open(_DAEMON_LOG, "a", encoding="utf-8")  # type: ignore[assignment]
+elif getattr(sys.stderr, "closed", False):
+    sys.stderr = open(_DAEMON_LOG, "a", encoding="utf-8")  # type: ignore[assignment]
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(_DAEMON_LOG, encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 
 try:

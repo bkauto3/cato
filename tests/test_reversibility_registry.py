@@ -105,9 +105,10 @@ class TestBuiltinBlastRadius:
         reg = fresh_registry()
         assert reg.get("read_file").blast_radius == BlastRadius.SELF
 
-    def test_email_send_blast_multi_user(self) -> None:
+    def test_email_send_blast_public(self) -> None:
+        """email_send reclassified from MULTI_USER to PUBLIC (2A audit)."""
         reg = fresh_registry()
-        assert reg.get("email_send").blast_radius == BlastRadius.MULTI_USER
+        assert reg.get("email_send").blast_radius == BlastRadius.PUBLIC
 
     def test_api_payment_blast_public(self) -> None:
         reg = fresh_registry()
@@ -281,3 +282,54 @@ class TestActionGuard:
         guard = self._guard()
         decision = guard.check_before_execute("conduit_click", {}, current_autonomy_level=0.5)
         assert decision.proceed is True
+
+    def test_guard_blocks_without_token_for_high_rev_tool(self) -> None:
+        """Without delegation token, high-reversibility action requires confirmation."""
+        guard = self._guard()
+        decision = guard.check_before_execute(
+            "email_send", {}, current_autonomy_level=0.5, agent_session_id=None
+        )
+        assert decision.proceed is False
+        assert decision.requires_confirmation is True
+
+    def test_guard_allows_with_valid_token(self) -> None:
+        """When TokenChecker authorizes with a token, guard proceeds without reversibility block."""
+        from unittest.mock import MagicMock
+        from cato.auth.token_checker import AuthResult
+        mock_tc = MagicMock()
+        mock_tc.check_authorization.return_value = AuthResult(
+            authorized=True,
+            token_id="test-token-abc12345",
+            reason="Authorized by token.",
+            requires_user_confirmation=False,
+        )
+        guard = ActionGuard(registry=fresh_registry(), token_checker=mock_tc)
+        decision = guard.check_before_execute(
+            "email_send", {"to": "user@example.com"},
+            current_autonomy_level=0.5,
+            agent_session_id="sess-1",
+        )
+        assert decision.proceed is True
+        assert decision.requires_confirmation is False
+        assert any("token_authorized" in c for c in decision.applied_checks)
+
+    def test_guard_blocks_when_token_scope_insufficient(self) -> None:
+        """When TokenChecker says not authorized and requires confirmation, guard blocks."""
+        from unittest.mock import MagicMock
+        from cato.auth.token_checker import AuthResult
+        mock_tc = MagicMock()
+        mock_tc.check_authorization.return_value = AuthResult(
+            authorized=False,
+            token_id=None,
+            reason="No active token covers category 'email.send'.",
+            requires_user_confirmation=True,
+        )
+        guard = ActionGuard(registry=fresh_registry(), token_checker=mock_tc)
+        decision = guard.check_before_execute(
+            "email_send", {},
+            current_autonomy_level=0.9,
+            agent_session_id="sess-1",
+        )
+        assert decision.proceed is False
+        assert decision.requires_confirmation is True
+        assert any("token_scope_insufficient" in c for c in decision.applied_checks)

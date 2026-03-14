@@ -136,7 +136,7 @@ export const NodesView: React.FC<NodesViewProps> = ({ httpPort }) => {
           <code>node.&lt;node_id&gt;.&lt;capability&gt;</code>.
         </p>
         <p style={{ color: "#4b5563", fontSize: 11, marginTop: 8 }}>
-          Nodes connect via WebSocket to <code>ws://127.0.0.1:8081</code> and send a{" "}
+          Nodes connect via WebSocket to <code>{`ws://127.0.0.1:${httpPort}/ws`}</code> and send a{" "}
           <code>node_register</code> message with their ID, name, and capabilities.
         </p>
       </div>

@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 _search_engine = None
 
 
-def _get_search_engine():
-    """Lazy-load search engine on first use."""
+def _get_search_engine(*, initialize: bool = True):
+    """Return the cached search engine, optionally creating it on first use."""
     global _search_engine
-    if _search_engine is None:
+    if _search_engine is None and initialize:
         try:
             from cato.core.semantic_search import SemanticSearchEngine
             _search_engine = SemanticSearchEngine()
@@ -113,10 +113,13 @@ async def index_memory(request: web.Request) -> web.Response:
 async def memory_stats(request: web.Request) -> web.Response:
     """GET /api/memory/stats — Get search engine statistics."""
     try:
-        engine = _get_search_engine()
+        engine = _get_search_engine(initialize=False)
         return web.json_response({
             "success": True,
-            "stats": engine.stats()
+            "stats": engine.stats() if engine is not None else {
+                "chunks_indexed": 0,
+                "model": "all-MiniLM-L6-v2",
+            },
         })
     except Exception as e:
         logger.exception(f"Error getting stats: {e}")

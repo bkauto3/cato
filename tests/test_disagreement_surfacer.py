@@ -245,3 +245,39 @@ def test_surface_two_models_only(surfacer):
     if result is not None:
         assert "consensus_view" in result
         assert "minority_model" in result
+
+
+# ---------------------------------------------------------------------------
+# Hybrid similarity: paraphrase-friendly fn lowers disagreement score
+# ---------------------------------------------------------------------------
+
+def test_paraphrase_high_similarity_fn_lowers_score():
+    """When a custom similarity fn treats paraphrases as similar, disagreement score drops."""
+    # Lexically different but same meaning -> Jaccard would be low
+    outputs = {
+        "claude": "We should implement retries with exponential backoff",
+        "codex": "Use exponential backoff when retrying requests",
+    }
+    confidences = {"claude": 0.8, "codex": 0.8}
+    jaccard_only = DisagreementSurfacer()
+    score_jaccard = jaccard_only.compute_disagreement_score(outputs, confidences, "default")
+    # Paraphrase fn: high similarity for any pair (simulate embedding saying "same meaning")
+    def paraphrase_fn(a: str, b: str) -> float:
+        return 0.9  # high similarity
+    hybrid = DisagreementSurfacer(text_similarity_fn=paraphrase_fn)
+    score_hybrid = hybrid.compute_disagreement_score(outputs, confidences, "default")
+    assert score_hybrid < score_jaccard
+    assert score_hybrid == pytest.approx(0.06, abs=0.01)  # 0.6 * (1 - 0.9) + 0.4 * 0
+
+
+def test_code_task_type_uses_jaccard_even_with_fn():
+    """For task_type 'code', Jaccard is used as fallback even when text_similarity_fn is set."""
+    outputs = {"a": "def foo(): pass", "b": "def bar(): pass"}
+    confidences = {"a": 0.8, "b": 0.8}
+    def always_one(_a: str, _b: str) -> float:
+        return 1.0
+    surfacer = DisagreementSurfacer(text_similarity_fn=always_one)
+    score_default = surfacer.compute_disagreement_score(outputs, confidences, "default")
+    score_code = surfacer.compute_disagreement_score(outputs, confidences, "code")
+    assert score_default == pytest.approx(0.0, abs=0.01)
+    assert score_code > 0.0  # Jaccard sees different tokens

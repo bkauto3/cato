@@ -57,7 +57,7 @@ class ReversibilityRegistry:
             ("delete_file",        0.8, "hours",        BlastRadius.SINGLE_USER, "Recoverable if not overwritten"),
             ("git_commit",         0.7, "hours",        BlastRadius.MULTI_USER,  "Hard to undo on shared repos"),
             ("git_push",           0.7, "hours",        BlastRadius.MULTI_USER,  "Hard to undo on shared repos"),
-            ("email_send",         1.0, "irreversible", BlastRadius.MULTI_USER,  "Fully irreversible"),
+            ("email_send",         1.0, "irreversible", BlastRadius.PUBLIC,     "Fully irreversible; recipients are public"),
             ("api_payment",        1.0, "irreversible", BlastRadius.PUBLIC,      "Fully irreversible"),
             ("shell_execute",      0.6, "minutes",      BlastRadius.SINGLE_USER, "Command-dependent; conservative default"),
             ("conduit_navigate",   0.0, "instant",      BlastRadius.SELF,        "Navigation only"),

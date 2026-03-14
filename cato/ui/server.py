@@ -46,13 +46,15 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from aiohttp import web, WSMsgType
+from aiohttp import ClientSession, ClientTimeout, web, WSMsgType
 
 logger = logging.getLogger(__name__)
 
 _DASHBOARD      = Path(__file__).parent / "dashboard.html"
 _CODING_AGENT   = Path(__file__).parent / "coding_agent.html"
 _START_TIME     = time.monotonic()
+_MCP_RUNTIME_KEY = web.AppKey("mcp_runtime", object)
+_MCP_PROXY_SESSION_KEY = web.AppKey("mcp_proxy_session", ClientSession)
 
 # Workspace identity files live here
 def _workspace_dir() -> Path:
@@ -106,6 +108,36 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     """
     app = web.Application(middlewares=[cors_middleware])
 
+    async def mcp_runtime_ctx(app: web.Application):
+        """Start and stop the background MCP runtime alongside the aiohttp app."""
+        app[_MCP_RUNTIME_KEY] = None
+        app[_MCP_PROXY_SESSION_KEY] = None
+
+        cfg = getattr(gateway, "_cfg", None) if gateway is not None else None
+        if gateway is None or cfg is None or not getattr(cfg, "mcp_enabled", False):
+            yield
+            return
+
+        from cato.mcp import CatoMCPRuntime
+
+        runtime = CatoMCPRuntime(gateway, cfg)
+        proxy_session: ClientSession | None = None
+        await runtime.start()
+        proxy_session = ClientSession(timeout=ClientTimeout(total=300))
+        app[_MCP_RUNTIME_KEY] = runtime
+        app[_MCP_PROXY_SESSION_KEY] = proxy_session
+
+        try:
+            yield
+        finally:
+            if proxy_session is not None:
+                await proxy_session.close()
+            await runtime.stop()
+            app[_MCP_RUNTIME_KEY] = None
+            app[_MCP_PROXY_SESSION_KEY] = None
+
+    app.cleanup_ctx.append(mcp_runtime_ctx)
+
     # ------------------------------------------------------------------ #
     # Route handlers                                                       #
     # ------------------------------------------------------------------ #
@@ -119,12 +151,75 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
         from cato import __version__
         sessions = len(gateway._lanes) if gateway is not None else 0
         uptime   = int(time.monotonic() - _START_TIME)
+        mcp_runtime = request.app.get(_MCP_RUNTIME_KEY)
         return web.json_response({
             "status":   "ok",
             "version":  __version__,
             "sessions": sessions,
             "uptime":   uptime,
+            "mcp": {
+                "enabled": bool(mcp_runtime),
+                "mount_path": getattr(mcp_runtime, "mount_path", None),
+                "port": getattr(mcp_runtime, "port", None),
+            },
         })
+
+    async def mcp_health(request: web.Request) -> web.Response:
+        """Return MCP runtime health for reverse-proxy and connector debugging."""
+        mcp_runtime = request.app.get(_MCP_RUNTIME_KEY)
+        if mcp_runtime is None:
+            return web.json_response({"status": "disabled"}, status=503)
+        return web.json_response(
+            {
+                "status": "ok",
+                "service": "cato-mcp-proxy",
+                "mount_path": mcp_runtime.mount_path,
+                "target": f"http://{mcp_runtime.host}:{mcp_runtime.port}{mcp_runtime.mount_path}",
+            }
+        )
+
+    async def mcp_proxy(request: web.Request) -> web.StreamResponse:
+        """Proxy MCP HTTP traffic to the internal FastMCP runtime."""
+        mcp_runtime = request.app.get(_MCP_RUNTIME_KEY)
+        proxy_session = request.app.get(_MCP_PROXY_SESSION_KEY)
+        if mcp_runtime is None or proxy_session is None:
+            return web.json_response({"error": "mcp runtime unavailable"}, status=503)
+
+        hop_by_hop_headers = {
+            "connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "host",
+        }
+        headers = {
+            key: value
+            for key, value in request.headers.items()
+            if key.lower() not in hop_by_hop_headers
+        }
+        body = await request.read()
+        target_url = mcp_runtime.proxy_target(request.rel_url.path_qs)
+
+        async with proxy_session.request(
+            request.method,
+            target_url,
+            headers=headers,
+            data=body or None,
+            allow_redirects=False,
+        ) as resp:
+            downstream = web.StreamResponse(status=resp.status, reason=resp.reason)
+            for key, value in resp.headers.items():
+                if key.lower() not in hop_by_hop_headers:
+                    downstream.headers[key] = value
+            await downstream.prepare(request)
+            async for chunk in resp.content.iter_chunked(65536):
+                await downstream.write(chunk)
+            await downstream.write_eof()
+            return downstream
 
     async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
         """Upgrade HTTP → WebSocket and proxy messages through the gateway."""
@@ -429,14 +524,25 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
                 {"status": "error", "message": f"Unknown CLI backend: {name}"},
                 status=404,
             )
-        # Attempt to restart via the process pool if available
+        # Attempt to restart via the shared CLI process pool. The pool is
+        # initialised on app startup and attached to the gateway (when present)
+        # so that a single singleton instance is reused.
         try:
-            if gateway is not None and hasattr(gateway, "_pool"):
-                pool = gateway._pool
-                if hasattr(pool, "restart"):
-                    await pool.restart(name)
-                elif hasattr(pool, "warm_up"):
-                    await pool.warm_up(name)
+            from cato.orchestrator.cli_process_pool import get_pool
+
+            pool = None
+            if gateway is not None and hasattr(gateway, "_cli_pool"):
+                pool = getattr(gateway, "_cli_pool")
+            if pool is None:
+                pool = get_pool()
+                if gateway is not None:
+                    setattr(gateway, "_cli_pool", pool)
+
+            if hasattr(pool, "restart"):
+                await pool.restart(name)
+            elif hasattr(pool, "warm_up"):
+                await pool.warm_up(name)
+
             return web.json_response({"status": "ok", "message": f"{name} restart initiated"})
         except Exception as exc:
             logger.error("cli_restart error for %s: %s", name, exc)
@@ -790,6 +896,71 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             return web.json_response({}, status=500)
 
     # ------------------------------------------------------------------ #
+    # Routing status — shows what SwarmSync is doing                      #
+    # ------------------------------------------------------------------ #
+
+    async def routing_status(request: web.Request) -> web.Response:
+        """GET /api/routing/status — show SwarmSync config and test a live routing call."""
+        if gateway is None:
+            return web.json_response({"error": "gateway not ready"}, status=503)
+        cfg = gateway._cfg
+        vault = gateway._vault
+
+        swarm_key = None
+        if vault is not None:
+            swarm_key = vault.get("SWARM_SYNC_API_KEY") or vault.get("SWARMSYNC_API_KEY")
+        openrouter_key = vault.get("OPENROUTER_API_KEY") if vault else None
+
+        status = {
+            "swarmsync_enabled": getattr(cfg, "swarmsync_enabled", False),
+            "swarmsync_api_url": getattr(cfg, "swarmsync_api_url", ""),
+            "default_model": getattr(cfg, "default_model", ""),
+            "swarm_key_present": bool(swarm_key),
+            "swarm_key_prefix": swarm_key[:12] + "..." if swarm_key and len(swarm_key) > 12 else swarm_key,
+            "openrouter_key_present": bool(openrouter_key),
+            "will_use_swarmsync": bool(getattr(cfg, "swarmsync_enabled", False) and swarm_key),
+        }
+
+        # If SwarmSync is active, do a live test routing call
+        if status["will_use_swarmsync"]:
+            try:
+                import aiohttp as _aiohttp
+                payload = {
+                    "model": "auto",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False,
+                    "swarmsync": {"complexity_score": 0.2, "history_length": 1},
+                }
+                headers = {
+                    "Authorization": f"Bearer {swarm_key}",
+                    "Content-Type": "application/json",
+                }
+                async with _aiohttp.ClientSession() as s:
+                    async with s.post(
+                        status["swarmsync_api_url"],
+                        json=payload,
+                        headers=headers,
+                        timeout=_aiohttp.ClientTimeout(total=15),
+                    ) as r:
+                        if r.status in (200, 201):
+                            data = await r.json()
+                            ss = data.get("swarmsync", {})
+                            status["live_test"] = {
+                                "http_status": r.status,
+                                "routed_model": ss.get("routed_model", data.get("model", "")),
+                                "routing_reason": ss.get("routing_reason", ""),
+                                "tier": ss.get("tier", ""),
+                                "complexity_score": ss.get("complexity_score"),
+                            }
+                        else:
+                            body = await r.text()
+                            status["live_test"] = {"http_status": r.status, "error": body[:200]}
+            except Exception as exc:
+                status["live_test"] = {"error": str(exc)}
+
+        return web.json_response(status)
+
+    # ------------------------------------------------------------------ #
     # Cron job history                                                     #
     # ------------------------------------------------------------------ #
 
@@ -956,8 +1127,9 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             semantic_stats: dict = {"chunks_indexed": 0, "model": "all-MiniLM-L6-v2"}
             try:
                 from cato.api.memory_routes import _get_search_engine
-                engine = _get_search_engine()
-                semantic_stats = engine.stats()
+                engine = _get_search_engine(initialize=False)
+                if engine is not None:
+                    semantic_stats = engine.stats()
             except Exception:
                 pass
 
@@ -1875,6 +2047,9 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
 
     app.router.add_get("/",                              serve_dashboard)
     app.router.add_get("/health",                        health)
+    app.router.add_get("/mcp/health",                    mcp_health)
+    app.router.add_route("*", "/mcp",                    mcp_proxy)
+    app.router.add_route("*", "/mcp/{tail:.*}",          mcp_proxy)
     app.router.add_get("/ws",                            websocket_handler)
     app.router.add_post("/config",                       save_config)
     app.router.add_get("/favicon.png",                   serve_favicon)
@@ -1916,6 +2091,7 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
     # Config
     app.router.add_get("/api/config",                    get_config)
     app.router.add_route("PATCH", "/api/config",         patch_config)
+    app.router.add_get("/api/routing/status",            routing_status)
     # Memory
     app.router.add_post("/api/config/reload",             reload_config)
     app.router.add_get("/api/memory/files",              memory_files)
@@ -1992,6 +2168,10 @@ async def create_ui_app(gateway: Optional[Any] = None) -> web.Application:
             from cato.orchestrator.cli_process_pool import get_pool
             pool = get_pool()
             await pool.start_all()
+            # Attach the pool to the gateway so /api/cli/{name}/restart can
+            # access the same singleton instance used here.
+            if gateway is not None:
+                setattr(gateway, "_cli_pool", pool)
             logger.info("CLI process pool started")
         except Exception as exc:
             logger.warning("CLI process pool failed to start: %s", exc)

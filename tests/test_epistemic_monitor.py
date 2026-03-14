@@ -1,10 +1,11 @@
 """
 Tests for EpistemicMonitor (Skill 3 — Epistemic Layer).
-25 tests covering premise extraction, confidence management,
-interrupt budget, session reset, and unresolved gap tracking.
+Premise extraction, confidence management, interrupt budget,
+session reset, unresolved gap tracking, and persistence.
 """
 
 import time
+from pathlib import Path
 
 import pytest
 
@@ -73,6 +74,26 @@ def test_extract_premises_multiple_sentences(monitor):
     )
     premises = monitor.extract_premises(text)
     assert len(premises) == 2
+
+
+def test_extract_premises_splits_on_exclamation(monitor):
+    text = "This is true! Given that we have proof, we can proceed."
+    premises = monitor.extract_premises(text)
+    assert len(premises) == 1
+    assert "given that" in premises[0].lower()
+
+
+def test_extract_premises_splits_on_question(monitor):
+    text = "Is it safe? Since the API is stable, we can deploy."
+    premises = monitor.extract_premises(text)
+    assert len(premises) == 1
+    assert "since" in premises[0].lower()
+
+
+def test_extract_premises_mixed_punctuation(monitor):
+    text = "Because A holds. B is false! What about C? Assuming D, we continue."
+    premises = monitor.extract_premises(text)
+    assert len(premises) == 2  # "Because A holds" and "Assuming D, we continue"
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +234,29 @@ def test_custom_max_interrupts():
     m = EpistemicMonitor(max_interrupts=1)
     m.consume_interrupt()
     assert m.can_interrupt() is False
+
+
+# ---------------------------------------------------------------------------
+# Persistence: unresolved gaps persist to SQLite and reload on restart
+# ---------------------------------------------------------------------------
+
+def test_unresolved_gaps_persist_and_reload(tmp_path: Path):
+    db = tmp_path / "epistemic.db"
+    m1 = EpistemicMonitor(db_path=db)
+    m1.record_unresolved("premise one", 0.40)
+    m1.record_unresolved("premise two", 0.55)
+    summary1 = m1.get_unresolved_summary()
+    assert summary1["total"] == 2
+    # New monitor instance loading from same DB
+    m2 = EpistemicMonitor(db_path=db)
+    summary2 = m2.get_unresolved_summary()
+    assert summary2["total"] == 2
+    premises = {g["premise"] for g in summary2["gaps"]}
+    assert "premise one" in premises
+    assert "premise two" in premises
+
+
+def test_unresolved_gaps_reload_empty_db(tmp_path: Path):
+    db = tmp_path / "empty_epistemic.db"
+    m = EpistemicMonitor(db_path=db)
+    assert m.get_unresolved_summary()["total"] == 0

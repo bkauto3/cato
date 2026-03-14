@@ -11,6 +11,7 @@ export type View =
   | "dashboard"
   | "chat"
   | "coding-agent"
+  | "interactive-cli"
   | "skills"
   | "cron"
   | "sessions"
@@ -43,9 +44,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Workspace",
     items: [
-      { id: "dashboard",    label: "Dashboard",    icon: "⊞" },
-      { id: "chat",         label: "Chat",          icon: "💬" },
-      { id: "coding-agent", label: "Coding Agent",  icon: "⌨" },
+      { id: "dashboard",       label: "Dashboard",       icon: "⊞" },
+      { id: "chat",           label: "Chat",           icon: "💬" },
+      { id: "coding-agent",   label: "Coding Agent",   icon: "⌨" },
+      { id: "interactive-cli", label: "Interactive CLIs", icon: "🖥" },
     ],
   },
   {

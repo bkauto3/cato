@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import { useChat } from '../hooks/useChat'
+import { useState, useEffect } from 'react'
 import '../styles/SettingsView.css'
 
 interface SettingsTab {
@@ -18,12 +17,16 @@ interface MemorySettings {
   model: string
 }
 
-export function SettingsView() {
-  const { httpPort } = useChat()
+interface SettingsViewProps {
+  httpPort: number
+}
+
+export function SettingsView({ httpPort }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'memory' | 'channels' | 'scheduling' | 'workspace'>('general')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const base = `http://127.0.0.1:${httpPort}`
 
   // State for each tab
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig | null>(null)
@@ -41,7 +44,7 @@ export function SettingsView() {
 
   useEffect(() => {
     loadSettings()
-  }, [activeTab])
+  }, [activeTab, httpPort])
 
   const loadSettings = async () => {
     setLoading(true)
@@ -50,7 +53,7 @@ export function SettingsView() {
     try {
       switch (activeTab) {
         case 'memory':
-          const memRes = await fetch(`http://localhost:${httpPort}/api/memory/stats`)
+          const memRes = await fetch(`${base}/api/memory/stats`)
           if (memRes.ok) {
             const data = await memRes.json()
             setMemoryStats(data.stats)
@@ -58,7 +61,7 @@ export function SettingsView() {
           break
 
         case 'channels':
-          const whatsRes = await fetch(`http://localhost:${httpPort}/api/whatsapp/config`)
+          const whatsRes = await fetch(`${base}/api/whatsapp/config`)
           if (whatsRes.ok) {
             const data = await whatsRes.json()
             setWhatsappConfig(data)
@@ -66,7 +69,7 @@ export function SettingsView() {
           break
 
         case 'workspace':
-          const configRes = await fetch(`http://localhost:${httpPort}/api/config`)
+          const configRes = await fetch(`${base}/api/config`)
           if (configRes.ok) {
             const data = await configRes.json()
             setWorkspacePath(data.workspace_dir || '')
@@ -86,7 +89,7 @@ export function SettingsView() {
     setError(null)
 
     try {
-      const res = await fetch(`http://localhost:${httpPort}/api/memory/index`, { method: 'POST' })
+      const res = await fetch(`${base}/api/memory/index`, { method: 'POST' })
       if (res.ok) {
         const data = await res.json()
         setMemoryStats(data.stats)
@@ -106,7 +109,7 @@ export function SettingsView() {
     setError(null)
 
     try {
-      const res = await fetch(`http://localhost:${httpPort}/api/config`, {
+      const res = await fetch(`${base}/api/config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
