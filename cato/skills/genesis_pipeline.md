@@ -1,32 +1,30 @@
 # Genesis Pipeline
-**Version:** 1.0.0
-**Capabilities:** pipeline.run → EmpireRuntime, invoke_for_genesis_phase, checkpoint resume
 
 ## Trigger Phrases
-"build a business", "run genesis", "start the pipeline", "run phase", "resume pipeline",
+"build a business", "run genesis", "start pipeline", "run phase", "resume pipeline",
 "skip completed", "genesis build", "empire run"
 
 ## Phase Map
 
-| # | Name | Primary | Fallback | Timeout |
-|---|------|---------|----------|---------|
-| 1 | Market Research | claude | — | 180 s |
-| 2 | SEO + Marketing | claude | — | 120 s |
-| 3 | Design System | gemini | claude | 120 s |
-| 4 | Technical Spec | claude | codex | 150 s |
-| 5 | Construction | claude | codex | 600 s |
-| 6 | Test + Fix | codex | claude | 300 s |
-| 7 | Deploy (GATE) | claude | — | 240 s |
-| 8 | Marketing Auto | claude | — | 120 s |
-| 9 | Health | claude | — | 60 s |
+| # | Name | Primary | Fallback |
+|---|------|---------|----------|
+| 1 | Market Research | claude | — |
+| 2 | SEO + Marketing | claude | — |
+| 3 | Design System | gemini | claude |
+| 4 | Technical Spec | claude | codex |
+| 5 | Construction | claude | codex |
+| 6 | Test + Fix | codex | claude |
+| 7 | Deploy (GATE) | claude | — |
+| 8 | Marketing Auto | claude | — |
+| 9 | Health | claude | — |
 
 ## Rules
 1. `skip_completed=True` resumes — skips phases with `success=True` checkpoint
-2. `stop_for_approval=True` pauses after phase 7 completes, before phase 8 — requires `through_phase > 7`
-3. All CLIs invoked with `-p <prompt>` flag (subprocess, not stdin pipe)
-4. Phase 6 uses `codex --full-auto`; workdir = `<business_dir>/website`
-5. `degraded=True` from both primary + fallback → Andon Cord: ask user
-6. Write failed checkpoint (`success=False`) so `skip_completed` won't skip on retry
+2. `stop_for_approval=True` pauses after phase 7, before phase 8 — requires `through_phase > 7`
+3. All CLIs invoked with `-p <prompt>` flag (not stdin pipe)
+4. Phase 6 workdir = `<business_dir>/website`
+5. Both primary+fallback `degraded=True` → Andon Cord: ask user
+6. Write `success=False` checkpoint so `skip_completed` won't skip on retry
 
 <!-- COLD -->
 
