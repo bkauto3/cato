@@ -22,24 +22,26 @@
 
 ## Rules
 1. `skip_completed=True` resumes — skips phases with `success=True` checkpoint
-2. `stop_for_approval=True` pauses before phase 7 deploy — always set in production
+2. `stop_for_approval=True` pauses after phase 7 completes, before phase 8 — requires `through_phase > 7`
 3. All CLIs invoked with `-p <prompt>` flag (subprocess, not stdin pipe)
 4. Phase 6 uses `codex --full-auto`; workdir = `<business_dir>/website`
 5. `degraded=True` from both primary + fallback → Andon Cord: ask user
 6. Write failed checkpoint (`success=False`) so `skip_completed` won't skip on retry
 
+<!-- COLD -->
+
 ## Key APIs
 
 ```python
-# Start
+# Start (phases 1-9, gate after phase 7)
 from cato.pipeline.runtime import EmpireRuntime
 runtime = EmpireRuntime()
 run = runtime.create_business_scaffold("SaaS idea")
 await runtime.run_pipeline(
     business_slug=run.business_slug,
     start_phase=1,
-    through_phase=7,
-    stop_for_approval=True,
+    through_phase=9,        # must be > 7 for the approval gate to fire
+    stop_for_approval=True, # pauses after phase 7, sets status=AWAITING_APPROVAL
     skip_completed=False,
 )
 
@@ -47,9 +49,9 @@ await runtime.run_pipeline(
 await runtime.run_pipeline(
     business_slug="my-saas",
     start_phase=1,
-    through_phase=7,
+    through_phase=9,        # must be > 7 for the approval gate to fire
     stop_for_approval=True,
-    skip_completed=True,
+    skip_completed=True,    # skips phases where checkpoint has success=True
 )
 
 # Single phase via CLI router
