@@ -16,12 +16,13 @@ import json
 import logging
 import os
 import shlex
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from ..platform import get_data_dir
+from ..platform import IS_WINDOWS, get_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,13 @@ class ShellTool:
         "ls", "cat", "head", "tail", "grep", "find", "wc", "echo",
         "python3", "python", "git",
         "mkdir", "cp", "mv", "chmod", "pwd", "env", "which", "date",
+    ]
+
+    # Windows equivalents — automatically added on Windows
+    WINDOWS_ALLOWLIST: list[str] = [
+        "dir", "type", "findstr", "where", "powershell", "pwsh",
+        "powershell.exe", "pwsh.exe", "cmd", "cmd.exe",
+        "Get-ChildItem", "Get-Content", "Set-Location",
     ]
 
     # Extended allowlist — opt-in only, NOT in DEFAULT_ALLOWLIST
@@ -104,8 +112,13 @@ class ShellTool:
 
         if mode == "gateway":
             allowlist = self._load_allowlist()
-            first_word = shlex.split(command)[0] if command.strip() else ""
-            base_cmd = Path(first_word).name  # strip path prefix if any
+            if IS_WINDOWS:
+                # On Windows, shlex.split can choke on backslash paths;
+                # use a simple whitespace split for the first token.
+                first_word = command.strip().split()[0] if command.strip() else ""
+            else:
+                first_word = shlex.split(command)[0] if command.strip() else ""
+            base_cmd = Path(first_word).stem if IS_WINDOWS else Path(first_word).name
             if base_cmd not in allowlist:
                 self._audit(mode, command, -1, blocked=True)
                 raise PermissionError(
@@ -133,11 +146,19 @@ class ShellTool:
     # ------------------------------------------------------------------
 
     async def _run_sandbox(self, command: str, timeout: int, cwd: Path) -> dict:
-        """Run via subprocess with shlex-parsed args (no shell=True)."""
-        try:
-            cmd_args = shlex.split(command)
-        except ValueError as exc:
-            return {"stdout": "", "stderr": f"shlex parse error: {exc}", "returncode": 1, "truncated": False}
+        """Run via subprocess with shlex-parsed args (no shell=True).
+
+        On Windows, routes commands through PowerShell (pwsh.exe or
+        powershell.exe) so that both native executables and PowerShell
+        cmdlets work seamlessly.
+        """
+        if IS_WINDOWS:
+            cmd_args = self._build_windows_cmd(command)
+        else:
+            try:
+                cmd_args = shlex.split(command)
+            except ValueError as exc:
+                return {"stdout": "", "stderr": f"shlex parse error: {exc}", "returncode": 1, "truncated": False}
 
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = cwd if cwd.exists() else Path(tmp)
@@ -159,13 +180,26 @@ class ShellTool:
         return self._build_result(stdout_b, stderr_b, proc.returncode)
 
     async def _run_full(self, command: str, timeout: int, cwd: Path) -> dict:
-        """Run via asyncio.create_subprocess_shell — unrestricted."""
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd) if cwd.exists() else None,
-        )
+        """Run via asyncio.create_subprocess_shell — unrestricted.
+
+        On Windows this routes through PowerShell so cmdlets and
+        native executables both work.
+        """
+        if IS_WINDOWS:
+            cmd_args = self._build_windows_cmd(command)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd) if cwd.exists() else None,
+            )
+        else:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd) if cwd.exists() else None,
+            )
         try:
             stdout_b, stderr_b = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
@@ -206,12 +240,42 @@ class ShellTool:
                     return set(data)
             except (json.JSONDecodeError, OSError):
                 pass
-        return set(self.DEFAULT_ALLOWLIST)
+        base = set(self.DEFAULT_ALLOWLIST)
+        if IS_WINDOWS:
+            base.update(self.WINDOWS_ALLOWLIST)
+        return base
+
+    @classmethod
+    def _find_powershell(cls) -> str:
+        """Locate the PowerShell executable (pwsh preferred, falls back to powershell.exe)."""
+        for candidate in ("pwsh", "powershell"):
+            found = shutil.which(candidate)
+            if found:
+                return found
+        # Absolute fallback — should always exist on modern Windows
+        return r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+    @classmethod
+    def _build_windows_cmd(cls, command: str) -> list[str]:
+        """Wrap *command* for execution via PowerShell on Windows.
+
+        Uses ``-NoProfile -NonInteractive -Command`` so that the user's
+        profile scripts don't interfere and the process exits cleanly.
+        """
+        ps = cls._find_powershell()
+        return [ps, "-NoProfile", "-NonInteractive", "-Command", command]
 
     @staticmethod
     def _minimal_env() -> dict[str, str]:
         """Return a trimmed environment for sandbox execution."""
         keep = {"PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR", "TMP", "TEMP"}
+        if IS_WINDOWS:
+            # Windows needs extra env vars for PowerShell / .NET to function
+            keep.update({
+                "SYSTEMROOT", "COMSPEC", "APPDATA", "LOCALAPPDATA",
+                "USERPROFILE", "PROGRAMFILES", "PROGRAMFILES(X86)",
+                "COMMONPROGRAMFILES", "WINDIR", "PSModulePath",
+            })
         return {k: v for k, v in os.environ.items() if k in keep}
 
     def _audit(

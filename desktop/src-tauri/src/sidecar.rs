@@ -138,14 +138,25 @@ impl SidecarManager {
     /// Find the cato binary — try sidecar path first, then PATH.
     fn find_cato_binary() -> String {
         if let Ok(exe) = std::env::current_exe() {
-            let sidecar = exe.parent().unwrap_or(exe.as_path()).join("cato");
-            if sidecar.exists() {
-                return sidecar.to_string_lossy().to_string();
+            let dir = exe.parent().unwrap_or(exe.as_path());
+
+            // Try platform-appropriate names
+            let candidates = if cfg!(windows) {
+                vec!["cato.exe", "cato.cmd", "cato.bat", "cato"]
+            } else {
+                vec!["cato"]
+            };
+
+            for name in candidates {
+                let sidecar = dir.join(name);
+                if sidecar.exists() {
+                    return sidecar.to_string_lossy().to_string();
+                }
             }
         }
 
         // Fallback: assume `cato` is on PATH (works during development)
-        "cato".to_string()
+        if cfg!(windows) { "cato.exe" } else { "cato" }.to_string()
     }
 }
 
