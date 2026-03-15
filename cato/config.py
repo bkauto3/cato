@@ -83,7 +83,7 @@ class CatoConfig:
     subagent_coding_backend: str = "codex"  # claude | codex | gemini | cursor
 
     # Safety gates
-    safety_mode: str = "strict"             # strict | permissive | off
+    safety_mode: str = "strict"             # strict | permissive | desktop | off
 
     # Budget forecast
     budget_forecast_enabled: bool = True    # show cost estimate before tasks

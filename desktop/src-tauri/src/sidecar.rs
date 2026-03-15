@@ -180,6 +180,23 @@ impl SidecarManager {
         }
     }
 
+    /// Find the cato binary — try sidecar path first, then PATH.
+    fn find_cato_binary() -> String {
+        if let Ok(exe) = std::env::current_exe() {
+            let dir = exe.parent().unwrap_or(exe.as_path());
+
+            // Try platform-appropriate names
+            let candidates = if cfg!(windows) {
+                vec!["cato.exe", "cato.cmd", "cato.bat", "cato"]
+            } else {
+                vec!["cato"]
+            };
+
+            for name in candidates {
+                let sidecar = dir.join(name);
+                if sidecar.exists() {
+                    return sidecar.to_string_lossy().to_string();
+                }
     fn refresh_ports_from_disk(&mut self) {
         let Some(port_path) = Self::port_file_path() else {
             return;
@@ -469,6 +486,8 @@ impl SidecarManager {
             return path;
         }
 
+        // Fallback: assume `cato` is on PATH (works during development)
+        if cfg!(windows) { "cato.exe" } else { "cato" }.to_string()
         log::warn!("cato binary not bundled; falling back to bare 'cato' for development");
         Path::new("cato").to_path_buf()
     }
