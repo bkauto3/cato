@@ -37,6 +37,7 @@ MODEL_TRANSLATIONS: dict[str, str] = {
     "mistral/mistral-small":         "mistral-small-latest",
     "minimax/minimax-2.5":           "abab7-chat-preview",
     "minimax/minimax-m2.5":          "abab7-chat-preview",
+    "Minimax:MiniMax M2.5":          "openrouter/minimax/minimax-m2.5",
     "openrouter/minimax/minimax-2.5":  "abab7-chat-preview",
     "openrouter/minimax/minimax-m2.5": "abab7-chat-preview",
     "moonshot/kimi-k2.5":            "moonshot-v1-8k",
@@ -48,16 +49,30 @@ _PREMIUM = ["claude-opus-4-6", "gemini-2.0-pro-exp", "gpt-4o", "deepseek-reasone
 
 # (prefix, base_url, auth_scheme)
 _PROVIDERS: list[tuple[str, str, str]] = [
-    ("claude-",   "https://api.anthropic.com/v1/messages",                                    "x-api-key"),
-    ("gpt-",      "https://api.openai.com/v1/chat/completions",                               "bearer"),
-    ("o3-",       "https://api.openai.com/v1/chat/completions",                               "bearer"),
-    ("gemini-",   "https://generativelanguage.googleapis.com/v1beta/models",                  "google"),
-    ("deepseek-", "https://api.deepseek.com/v1/chat/completions",                             "bearer"),
-    ("llama-",    "https://api.groq.com/openai/v1/chat/completions",                          "bearer"),
-    ("mistral-",  "https://api.mistral.ai/v1/chat/completions",                               "bearer"),
-    ("abab",      "https://api.minimax.chat/v1/text/chatcompletion_pro",                      "bearer"),
-    ("moonshot-", "https://api.moonshot.cn/v1/chat/completions",                              "bearer"),
+    ("claude-",     "https://api.anthropic.com/v1/messages",                                    "x-api-key"),
+    ("gpt-",        "https://api.openai.com/v1/chat/completions",                               "bearer"),
+    ("o3-",         "https://api.openai.com/v1/chat/completions",                               "bearer"),
+    ("gemini-",     "https://generativelanguage.googleapis.com/v1beta/models",                  "google"),
+    ("deepseek-",   "https://api.deepseek.com/v1/chat/completions",                             "bearer"),
+    ("llama-",      "https://api.groq.com/openai/v1/chat/completions",                          "bearer"),
+    ("mistral-",    "https://api.mistral.ai/v1/chat/completions",                               "bearer"),
+    ("abab",        "https://api.minimax.chat/v1/text/chatcompletion_pro",                      "bearer"),
+    ("moonshot-",   "https://api.moonshot.cn/v1/chat/completions",                              "bearer"),
+    ("openrouter/", "https://openrouter.ai/api/v1/chat/completions",                            "openrouter"),
 ]
+
+def _is_model_slug_only(text: str) -> bool:
+    """True if text looks like a model id (e.g. openrouter/minimax/minimax-m2.5) and nothing else.
+    Some providers echo the model in stream content; we skip it so the UI doesn't show only the model name.
+    """
+    t = (text or "").strip()
+    if not t or len(t) > 120:
+        return False
+    # Model slugs: openrouter/..., provider/name, or single-word model ids
+    if t.startswith("openrouter/") or "/" in t and re.match(r"^[\w\-./]+$", t):
+        return True
+    return False
+
 
 # Signal regexes for complexity scoring
 _RE_REASON   = re.compile(r"\b(why|analyze|analyse|compare|explain|evaluate|assess)\b", re.I)
@@ -79,9 +94,13 @@ class ModelRouter:
         swarmsync_api_url: str = "https://api.swarmsync.ai/v1/chat/completions",
     ) -> None:
         self._vault = vault
-        # Translate OpenRouter-style slugs (e.g. "openrouter/minimax/minimax-m2.5")
-        # to native model IDs so _resolve_provider() can match them correctly.
-        self._preferred = MODEL_TRANSLATIONS.get(preferred_model, preferred_model)
+        # Keep openrouter/ prefixed models untranslated so they route through
+        # the OpenRouter provider entry.  All other slugs are translated to their
+        # native IDs (e.g. "anthropic/claude-sonnet-4-6" → "claude-sonnet-4-6").
+        if preferred_model.startswith("openrouter/"):
+            self._preferred = preferred_model
+        else:
+            self._preferred = MODEL_TRANSLATIONS.get(preferred_model, preferred_model)
         self._blocked: set[str] = set(blocked_models or [])
         self._swarmsync_url = swarmsync_api_url
 
@@ -101,28 +120,50 @@ class ModelRouter:
 
     def select_model(self, score: float, task_type: Optional[str] = None) -> str:
         """Return native model ID for score band, respecting blocked/preferred config."""
-        pool = _ECONOMY if score < 0.35 else (_MID if score < 0.70 else _PREMIUM)
-        if self._preferred and self._preferred not in self._blocked and self._preferred in pool:
+        # Always honour preferred_model if set and not blocked — even if it's an
+        # openrouter/ or other external model not in the local pool lists.
+        if self._preferred and self._is_available(self._preferred):
             return self._preferred
+        pool = _ECONOMY if score < 0.35 else (_MID if score < 0.70 else _PREMIUM)
         for m in pool:
-            if m not in self._blocked:
+            if self._is_available(m):
                 return m
         if self._preferred and self._preferred not in self._blocked:
             return self._preferred
         for m in _ECONOMY + _MID + _PREMIUM:
-            if m not in self._blocked:
+            if self._is_available(m):
                 return m
         return _ECONOMY[0]  # last-resort: cheapest available model
 
     async def _swarmsync_route(
         self, messages: list[dict], api_key: str, score: float
-    ) -> Tuple[str, Optional[str]]:
+    ) -> str:
         """
-        Delegate to SwarmSync API (OpenAI-compatible proxy).
+        Query SwarmSync API and return the routed model name.
 
-        Returns (model, content) where content is the assistant reply when
-        SwarmSync acts as a full proxy, or None when it is routing-only.
+        SwarmSync always executes the completion regardless of ``routing_only``
+        flag.  Use :meth:`_swarmsync_complete` when you want the completion
+        text directly (avoids a second API call).  This method discards the
+        completion body and only returns the model that was chosen.
+
         Falls back to local selection on any error.
+        """
+        result = await self._swarmsync_complete(messages, api_key, score)
+        return result[0]  # (model, text) — caller only wants model here
+
+    async def _swarmsync_complete(
+        self, messages: list[dict], api_key: str, score: float
+    ) -> tuple[str, str]:
+        """
+        Call SwarmSync and return ``(routed_model, completion_text)``.
+
+        SwarmSync always runs a full completion regardless of ``routing_only``.
+        The system prompt and skills travel in ``messages``, so the model
+        receives full context.  We use the response text directly to avoid
+        paying twice for the same call.
+
+        Returns ``(select_model(score), "")`` on any error so callers can fall
+        back gracefully.
         """
         payload = {
             "model": "auto",
@@ -137,28 +178,72 @@ class ModelRouter:
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.post(
-                    f"{self._swarmsync_url}",
+                    self._swarmsync_url,
                     json=payload,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=120),
                 ) as r:
-                    if r.status == 200:
+                    # SwarmSync returns 200 or 201 depending on version
+                    if r.status in (200, 201):
                         data = await r.json()
-                        # Prefer swarmsync metadata for routed model name, fall back to top-level
+                        # Extract routed model name
                         raw_model = (
                             data.get("swarmsync", {}).get("routed_model", "")
                             or data.get("model", "")
                         )
-                        model = MODEL_TRANSLATIONS.get(raw_model, raw_model) or self.select_model(score)
-                        # Extract assistant content from the full OpenAI-compatible response
-                        try:
-                            content: Optional[str] = data["choices"][0]["message"]["content"]
-                        except (KeyError, IndexError, TypeError):
-                            content = None
-                        return model, content
+                        model = self.select_model(score)  # fallback
+                        if raw_model and raw_model != "auto":
+                            model = self._resolve_swarmsync_model(raw_model, score)
+                            logger.info("SwarmSync routed to: %s (raw: %s)", model, raw_model)
+                        # Extract completion text from choices
+                        text = ""
+                        choices = data.get("choices", [])
+                        if choices:
+                            text = choices[0].get("message", {}).get("content", "") or ""
+                        return model, text
+                    else:
+                        body = await r.text()
+                        logger.warning("SwarmSync HTTP %d: %s", r.status, body[:200])
         except Exception as exc:
-            logger.warning("SwarmSync routing failed: %s — using local selection", exc)
-        return self.select_model(score), None
+            logger.warning("SwarmSync completion failed: %s — using local selection", exc)
+        return self.select_model(score), ""
+
+    def _resolve_swarmsync_model(self, raw_model: str, score: float) -> str:
+        """
+        Convert a SwarmSync-recommended model slug to a locally-usable model ID.
+
+        Strategy (in order):
+          1. Direct translation table hit → use native ID
+          2. Model already has a native API key → use as-is
+          3. OpenRouter key available → prefix with ``openrouter/`` and route
+             through OpenRouter (strips leading ``openrouter/`` if already present
+             to avoid double-prefix)
+          4. Fall back to local score-based selection
+        """
+        # 1. Check explicit translation table
+        if raw_model in MODEL_TRANSLATIONS:
+            translated = MODEL_TRANSLATIONS[raw_model]
+            if self._is_available(translated):
+                return translated
+
+        # 2. Check if raw model is directly usable (native key exists)
+        if self._is_available(raw_model):
+            return raw_model
+
+        # 3. Route through OpenRouter if we have a key
+        openrouter_key = self._vault.get("OPENROUTER_API_KEY")
+        if openrouter_key:
+            # Avoid double-prefix: openrouter/openrouter/... is invalid
+            clean = raw_model.removeprefix("openrouter/")
+            as_openrouter = f"openrouter/{clean}"
+            return as_openrouter
+
+        # 4. Fall back to local score-based selection
+        logger.warning(
+            "SwarmSync recommended %r but no suitable API key found — using local selection",
+            raw_model,
+        )
+        return self.select_model(score)
 
     async def complete(
         self,
@@ -216,7 +301,9 @@ class ModelRouter:
 
     async def _openai_compat(self, messages: list[dict], model: str, tools: list[dict],
                               api_key: str, base_url: str) -> AsyncIterator[str]:
-        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+        # OpenRouter expects "provider/model" not "openrouter/provider/model"
+        api_model = model.removeprefix("openrouter/") if model.startswith("openrouter/") else model
+        payload: dict[str, Any] = {"model": api_model, "messages": messages, "stream": True}
         if tools:
             payload["tools"] = tools
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -231,9 +318,24 @@ class ModelRouter:
                     if raw == "[DONE]":
                         break
                     try:
-                        delta = json.loads(raw)["choices"][0].get("delta", {})
-                        if delta.get("content"):
-                            yield delta["content"]
+                        choice = json.loads(raw)["choices"][0]
+                        delta = choice.get("delta", {})
+                        finish = choice.get("finish_reason")
+                        content = delta.get("content")
+                        if content and not _is_model_slug_only(content):
+                            yield content
+                        elif finish == "tool_calls" and not content:
+                            # Model responded with a tool-call frame but no prose
+                            # (e.g. MiniMax M2.5 hallucinates function calls).
+                            # Surface the tool name as a text hint so the response
+                            # is never silently empty.
+                            tool_calls = delta.get("tool_calls") or []
+                            if tool_calls:
+                                names = ", ".join(
+                                    tc.get("function", {}).get("name", "unknown")
+                                    for tc in tool_calls
+                                )
+                                yield f"[attempted tool call: {names} — please rephrase your request]"
                     except (json.JSONDecodeError, KeyError, IndexError):
                         pass
 
@@ -278,11 +380,21 @@ class ModelRouter:
                 return url, auth
         return "https://api.openai.com/v1/chat/completions", "bearer"
 
+    def _is_available(self, model: str) -> bool:
+        resolved = MODEL_TRANSLATIONS.get(model, model)
+        if resolved in self._blocked or model in self._blocked:
+            return False
+        _, auth = self._resolve_provider(resolved)
+        api_key = self._get_api_key(auth, resolved)
+        return bool(api_key)
+
     def _get_api_key(self, auth: str, model: str) -> str:
         if auth == "x-api-key":
             return self._vault.get("ANTHROPIC_API_KEY") or ""
         if auth == "google":
             return self._vault.get("GOOGLE_API_KEY") or ""
+        if auth == "openrouter":
+            return self._vault.get("OPENROUTER_API_KEY") or ""
         mapping = {
             "openrouter/": "OPENROUTER_API_KEY",
             "swarmsync/":  "SWARMSYNC_API_KEY",

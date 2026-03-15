@@ -247,11 +247,16 @@ class PersistentProcess:
         args = self.protocol.spawn_args()
         logger.info("Starting persistent %s process: %s", self.name, " ".join(args))
 
+        # Unset CLAUDECODE so claude CLI doesn't refuse with "nested session" error
+        import os as _os
+        env = {k: v for k, v in _os.environ.items() if k != "CLAUDECODE"}
+
         self._proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
 
         # Optional initialization handshake
@@ -370,6 +375,23 @@ class CLIProcessPool:
         """Stop all persistent processes."""
         for proc in self._processes.values():
             await proc.stop()
+
+    async def restart(self, cli_name: str) -> None:
+        """Restart a single CLI backend by name.
+
+        Used by the /api/cli/{name}/restart endpoint and desktop UI buttons.
+        """
+        proc = self._processes.get(cli_name)
+        if proc is None:
+            raise ValueError(f"No persistent process configured for {cli_name!r}")
+        await proc.restart()
+
+    async def warm_up(self, cli_name: str) -> None:
+        """Ensure a single CLI backend is started without forcing a restart."""
+        proc = self._processes.get(cli_name)
+        if proc is None:
+            raise ValueError(f"No persistent process configured for {cli_name!r}")
+        await proc.start()
 
     def is_warm(self, cli_name: str) -> bool:
         """Return True if *cli_name* has a running persistent process."""

@@ -186,9 +186,15 @@ class AnomalyDetector:
         threshold = _THRESHOLDS.get(task_type, _THRESHOLDS["default"])
         return score > threshold and cross_source_count >= 2
 
-    def classify_disagreement(self, text_a: str, text_b: str) -> str:
+    def classify_disagreement_heuristic(self, text_a: str, text_b: str) -> str:
         """
-        Classify the nature of disagreement between two signal texts.
+        Classify the nature of disagreement between two signal texts using keyword heuristics only.
+
+        This is a lightweight, deterministic classifier: it looks for specific
+        keywords (e.g. "risk", "prefer", "instead") and returns a category.
+        No embeddings or ML; use for fast filtering. For calibration or
+        embedding-backed classification, use a separate pipeline.
+
         Returns: FACTUAL | APPROACH | RISK_ASSESSMENT | VALUE_JUDGMENT
         """
         combined = (text_a + " " + text_b).lower()
@@ -199,6 +205,10 @@ class AnomalyDetector:
         if any(w in combined for w in ["instead", "alternatively", "better to", "approach"]):
             return "APPROACH"
         return "FACTUAL"
+
+    def classify_disagreement(self, text_a: str, text_b: str) -> str:
+        """Alias for classify_disagreement_heuristic for backward compatibility."""
+        return self.classify_disagreement_heuristic(text_a, text_b)
 
     # ------------------------------------------------------------------
     # Predictions

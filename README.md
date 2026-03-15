@@ -2,9 +2,9 @@
 
 > **Migrating from OpenClaw, ClawdBot, or MoltBot?** → [Jump to migration guide](#migrate-from-openclaw-clawdbot-or-moltbot)
 
-**~3,000 lines of auditable Python. No mystery dependencies. No open ports by default. Budget-capped so it cannot bankrupt you overnight.**
+**~3,000 lines of auditable Python. No mystery dependencies. Budget-capped so it cannot bankrupt you overnight.**
 
-- **No open ports by default** — WebChat is opt-in; Telegram and WhatsApp connectors use outbound polling only
+- **Web UI always on when daemon runs** — `cato start` binds HTTP and WebSocket on `webchat_port` (default 8080); Telegram and WhatsApp use outbound polling only
 - **Hard budget caps** — session cap ($1.00) and monthly cap ($20.00) enforced before every LLM call; raises `BudgetExceeded` before your card is charged
 - **Auditable in an afternoon** — ~3,000 lines across 6 core modules, fully type-hinted, zero magic
 - **One-command migration** — `cato migrate --from-openclaw` copies your OpenClaw / ClawdBot / MoltBot workspaces and validates SKILL.md compatibility instantly
@@ -57,9 +57,10 @@ The wizard asks for:
 ### Start the daemon
 
 ```bash
-cato start                        # WebChat on localhost:8765
-cato start --channel telegram     # Telegram polling only
-cato start --channel all          # all channels
+cato start                        # Web UI on localhost:8080 + all enabled channels
+cato start --channel webchat      # Web UI only (default)
+cato start --channel telegram     # Web UI + Telegram adapter
+cato start --channel all          # Web UI + Telegram + WhatsApp (if enabled in config)
 ```
 
 That's it. No Docker. No PostgreSQL. No Redis. SQLite for memory, a single YAML for config, one encrypted file for secrets.
@@ -113,7 +114,7 @@ After migration, run `cato doctor` to audit token budgets and `cato init` to con
 ### Enabling SwarmSync
 
 ```yaml
-# ~/.cato/config.yaml
+# config.yaml (Windows: %APPDATA%\cato; macOS/Linux: ~/.cato)
 swarmsync_enabled: true
 swarmsync_api_url: https://api.swarmsync.ai/v1/chat/completions
 ```
@@ -406,7 +407,7 @@ cato vault set KEY value               # store an API key in the encrypted vault
 
 ## Configuration
 
-All config lives at `~/.cato/config.yaml`:
+All config lives in the Cato data directory (Windows: `%APPDATA%\cato\config.yaml`, macOS/Linux: `~/.cato/config.yaml`):
 
 ```yaml
 agent_name: cato
@@ -418,7 +419,7 @@ swarmsync_enabled: true
 swarmsync_api_url: https://api.swarmsync.ai/v1/chat/completions
 telegram_enabled: false
 whatsapp_enabled: false
-webchat_port: 8765
+webchat_port: 8080
 max_planning_turns: 2
 context_budget_tokens: 7000
 log_level: INFO

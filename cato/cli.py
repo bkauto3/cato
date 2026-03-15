@@ -20,12 +20,13 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import click
 from rich.console import Console
 from rich.table import Table
 
+from cato import __version__
 from cato.budget import BudgetManager
 from cato.config import CatoConfig
 from cato.platform import get_data_dir, safe_print, setup_signal_handlers
@@ -35,6 +36,58 @@ console = Console()
 
 _CATO_DIR = get_data_dir()
 _PID_FILE = _CATO_DIR / "cato.pid"
+_PORT_FILE = _CATO_DIR / "cato.port"
+
+
+def _discover_http_port(config: Optional[CatoConfig] = None) -> int:
+    """Return the daemon's active HTTP port, preferring the runtime port file."""
+    if _PORT_FILE.exists():
+        try:
+            return int(_PORT_FILE.read_text().strip())
+        except (OSError, ValueError):
+            pass
+
+    cfg = config or CatoConfig.load()
+    return getattr(cfg, "webchat_port", None) or getattr(cfg, "port", None) or 8080
+
+
+async def _bind_http_site_with_fallback(
+    runner: Any,
+    host: str,
+    preferred_port: int,
+    *,
+    max_attempts: int = 5,
+    retry_delay: float = 1.0,
+    log: Any = None,
+) -> tuple[Any, int]:
+    """Bind an aiohttp site, shifting upward when the preferred port is busy."""
+    import asyncio
+    from aiohttp import web
+
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+
+    last_error: OSError | None = None
+    for attempt in range(max_attempts):
+        candidate_port = preferred_port + attempt
+        try:
+            site = web.TCPSite(runner, host, candidate_port)
+            await site.start()
+            if attempt > 0 and log is not None:
+                log.warning(
+                    "Port %d in use — daemon bound to %d instead. "
+                    "If this is unexpected, ensure the old daemon process is fully stopped.",
+                    preferred_port,
+                    candidate_port,
+                )
+            return site, candidate_port
+        except OSError as exc:
+            last_error = exc
+            if attempt == max_attempts - 1:
+                raise
+            await asyncio.sleep(retry_delay)
+
+    raise last_error or RuntimeError("failed to bind daemon HTTP site")
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +95,7 @@ _PID_FILE = _CATO_DIR / "cato.pid"
 # ---------------------------------------------------------------------------
 
 @click.group()
-@click.version_option(version="1.1.0", prog_name="cato")
+@click.version_option(version=__version__, prog_name="cato")
 def main() -> None:
     """Cato — The AI agent daemon you can audit in a coffee break."""
 
@@ -143,6 +196,9 @@ def cmd_init() -> None:
     # 8. Save config
     config.save()
 
+    safe_print(f"\n  Config:   {config._path}")
+    safe_print(f"  Workspace: {config.workspace_dir}")
+
     # 9. Initialise budget manager with chosen caps
     bm = BudgetManager(session_cap=session_cap, monthly_cap=monthly_cap)
     bm.set_monthly_cap(monthly_cap)
@@ -242,7 +298,7 @@ def vault_delete(key: str) -> None:
 @click.option("--agent", default="default", show_default=True, help="Agent workspace name.")
 @click.option("--channel", default="webchat", show_default=True,
               type=click.Choice(["webchat", "telegram", "whatsapp", "all"]),
-              help="Messaging channel to enable.")
+              help="Which messaging channels to enable. Web UI (HTTP/WS) is always started on webchat_port.")
 @click.option("--browser", default="default", show_default=True,
               type=click.Choice(["default", "conduit"]),
               help="Browser engine to use (conduit = opt-in per-action billing).")
@@ -335,21 +391,22 @@ def _run_daemon(config: CatoConfig, agent: str, channel: str) -> None:
         app = await create_ui_app(gateway)
         runner = web.AppRunner(app)
         await runner.setup()
-        port = getattr(cfg, "webchat_port", None) or getattr(cfg, "port", None) or 18789
-        actual_port = port
-        for attempt in range(5):
-            try:
-                site = web.TCPSite(runner, "127.0.0.1", port + attempt)
-                await site.start()
-                actual_port = port + attempt
-                if attempt > 0:
-                    log.info(f"Port {port} in use, using {actual_port} instead")
-                break
-            except OSError:
-                if attempt == 4:
-                    raise
+        port = getattr(cfg, "webchat_port", None) or getattr(cfg, "port", None) or 8080
+        _site, actual_port = await _bind_http_site_with_fallback(
+            runner,
+            "127.0.0.1",
+            port,
+            max_attempts=5,
+            retry_delay=1.0,
+            log=log,
+        )
         log.info(f"Web UI at http://127.0.0.1:{actual_port}")
         safe_print(f"Cato daemon running on http://127.0.0.1:{actual_port}. Press Ctrl-C to stop.")
+        # Write the actual bound port to a file so other tools (watchdog, UI) can discover it
+        try:
+            _PORT_FILE.write_text(str(actual_port))
+        except OSError:
+            pass
 
         try:
             await gateway.start()
@@ -362,6 +419,8 @@ def _run_daemon(config: CatoConfig, agent: str, channel: str) -> None:
         finally:
             await runner.cleanup()
             await gateway.stop()
+            # Remove port file on clean shutdown
+            _PORT_FILE.unlink(missing_ok=True)
 
     try:
         if vault is None:
@@ -575,6 +634,8 @@ def cmd_status() -> None:
 
     safe_print("\nCato Status")
     safe_print("=" * 50)
+    safe_print(f"  Config:   {getattr(config, '_path', _CATO_DIR / 'config.yaml')}")
+    safe_print(f"  Workspace: {config.workspace_dir}")
 
     if is_running:
         pid = _PID_FILE.read_text().strip()
@@ -587,10 +648,19 @@ def cmd_status() -> None:
     safe_print(f"  Safety:  {config.safety_mode}")
     safe_print(f"  Conduit: {'enabled' if config.conduit_enabled else 'disabled'}")
 
-    safe_print("\nChannels")
+    # Listeners: show actual bound port when daemon is running
+    safe_print("\nListeners")
+    if is_running and _PORT_FILE.exists():
+        try:
+            actual = int(_PORT_FILE.read_text().strip())
+            safe_print(f"  HTTP (Web UI):  http://127.0.0.1:{actual}")
+            safe_print(f"  WebSocket:      ws://127.0.0.1:{actual}")
+        except (OSError, ValueError):
+            safe_print(f"  WebChat:  port {config.webchat_port} (config)")
+    else:
+        safe_print(f"  WebChat:  port {config.webchat_port} (config)")
     safe_print(f"  Telegram: {'enabled' if config.telegram_enabled else 'disabled'}")
     safe_print(f"  WhatsApp: {'enabled' if config.whatsapp_enabled else 'disabled'}")
-    safe_print(f"  WebChat:  port {config.webchat_port}")
 
     safe_print("\nBudget")
     try:
@@ -887,10 +957,10 @@ def _run_cron_via_ws(entry: dict) -> None:
         return
 
     _config = CatoConfig.load()
-    _ws_port = (getattr(_config, "webchat_port", None) or 8765) + 1
+    _http_port = _discover_http_port(_config)
 
     async def _send() -> None:
-        uri = f"ws://127.0.0.1:{_ws_port}"
+        uri = f"ws://127.0.0.1:{_http_port}/ws"
         try:
             async with _ws.connect(uri) as ws:
                 payload = _json.dumps({
@@ -934,10 +1004,10 @@ def node_list() -> None:
         return
 
     _config = CatoConfig.load()
-    _ws_port = (getattr(_config, "webchat_port", None) or 8765) + 1
+    _http_port = _discover_http_port(_config)
 
     async def _fetch() -> None:
-        uri = f"ws://127.0.0.1:{_ws_port}"
+        uri = f"ws://127.0.0.1:{_http_port}/ws"
         try:
             async with _ws.connect(uri) as ws:
                 await ws.send(_json.dumps({"type": "node_list"}))
@@ -973,11 +1043,11 @@ def node_list() -> None:
 def node_info() -> None:
     """Show how to connect a remote node to this Cato instance."""
     config = CatoConfig.load()
-    ws_port = (getattr(config, "webchat_port", None) or 8765) + 1
+    http_port = _discover_http_port(config)
 
     safe_print("\nCato Node Connection Info")
     safe_print("=" * 50)
-    safe_print(f"WebSocket endpoint:  ws://127.0.0.1:{ws_port}")
+    safe_print(f"WebSocket endpoint:  ws://127.0.0.1:{http_port}/ws")
     safe_print("\nTo register a node, send this JSON over WebSocket:")
     safe_print("""  {
     "type": "node_register",
@@ -2277,6 +2347,314 @@ def rollback_list(name: str, agent: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# cato empire  (Multi-LLM pipeline orchestration)
+# ---------------------------------------------------------------------------
+
+@main.group("empire")
+def empire_cmd() -> None:
+    """Manage empire pipeline runs and worker handoffs."""
+    pass
+
+
+@empire_cmd.command("init")
+@click.argument("idea")
+@click.option("--slug", default=None, help="Optional business slug override.")
+def empire_init(idea: str, slug: Optional[str]) -> None:
+    """Create a new business workspace for a multi-LLM run."""
+    from cato.pipeline.runtime import EmpireRuntime
+
+    runtime = EmpireRuntime(CatoConfig.load())
+    run = runtime.create_business_scaffold(idea, business_slug=slug)
+
+    safe_print(f"Business created: {run.business_slug}")
+    safe_print(f"Run ID: {run.run_id}")
+    safe_print(f"Directory: {run.business_dir}")
+
+
+@empire_cmd.command("run")
+@click.argument("idea")
+@click.option("--slug", default=None, help="Optional business slug override.")
+@click.option("--through", "through_phase", default=7, show_default=True, type=int)
+@click.option("--timeout", "timeout_sec", default=300.0, show_default=True, type=float)
+def empire_run(idea: str, slug: Optional[str], through_phase: int, timeout_sec: float) -> None:
+    """Create a new business and run the pipeline through a target phase."""
+    import asyncio as _asyncio
+
+    from cato.pipeline.runtime import EmpireRuntime
+
+    runtime = EmpireRuntime(CatoConfig.load())
+    run = runtime.create_business_scaffold(idea, business_slug=slug)
+
+    safe_print(f"Pipeline started for: {run.idea}")
+    safe_print(f"Business: {run.business_slug}")
+    safe_print(f"Directory: {run.business_dir}")
+
+    async def _run() -> None:
+        summary = await runtime.run_pipeline(
+            business_slug=run.business_slug,
+            start_phase=1,
+            through_phase=through_phase,
+            stop_for_approval=True,
+            timeout_sec=timeout_sec,
+        )
+        safe_print(f"Status: {summary['status']}")
+        safe_print(f"Completed phases: {summary['completed_phases']}")
+        if summary["status"] == "AWAITING_APPROVAL":
+            safe_print("Stopped at Phase 7 approval gate. Resume with phase 8 after approval.")
+        elif summary["status"] != "COMPLETED":
+            safe_print(f"Pipeline stopped at phase {summary['stopped_at_phase']}.")
+
+    _asyncio.run(_run())
+
+
+def _fallback_empire_runs(runtime: Any) -> list[dict[str, str]]:
+    runs: list[dict[str, str]] = []
+    for child in runtime.pipeline_root.iterdir():
+        if not child.is_dir():
+            continue
+        manifest_path = child / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        runs.append(
+            {
+                "business_slug": manifest.get("business_slug", child.name),
+                "idea": manifest.get("idea", ""),
+                "status": "SCAFFOLDED",
+                "current_phase": 0,
+                "business_dir": str(child),
+            }
+        )
+    runs.sort(key=lambda item: item["business_slug"])
+    return runs
+
+
+@empire_cmd.command("status")
+@click.argument("business_slug", required=False)
+def empire_status(business_slug: Optional[str]) -> None:
+    """Show existing empire business runs."""
+    from cato.pipeline.models import PHASE_NAMES
+    from cato.pipeline.runtime import EmpireRuntime
+
+    runtime = EmpireRuntime(CatoConfig.load())
+    if business_slug:
+        run = runtime.get_run(business_slug)
+        runs: list[Any] = [run] if run is not None else []
+    else:
+        runs = runtime.list_runs()
+
+    if not runs:
+        fallback_runs = _fallback_empire_runs(runtime)
+        if business_slug:
+            fallback_runs = [
+                item for item in fallback_runs if item["business_slug"] == business_slug
+            ]
+        if not fallback_runs:
+            safe_print("No empire business runs found.")
+            return
+
+        table = Table(title="Empire Runs")
+        table.add_column("Business", style="cyan", no_wrap=True)
+        table.add_column("Status")
+        table.add_column("Phase")
+        table.add_column("Idea")
+        for item in fallback_runs:
+            table.add_row(
+                item["business_slug"],
+                item["status"],
+                "0 - scaffolded",
+                item["idea"],
+            )
+        console.print(table)
+        return
+
+    table = Table(title="Empire Runs")
+    table.add_column("Business", style="cyan", no_wrap=True)
+    table.add_column("Status")
+    table.add_column("Phase")
+    table.add_column("Idea")
+    for run in runs:
+        phase_name = PHASE_NAMES.get(run.current_phase, "scaffolded")
+        table.add_row(
+            run.business_slug,
+            run.status,
+            f"{run.current_phase} - {phase_name}",
+            run.idea,
+        )
+    console.print(table)
+
+
+@empire_cmd.command("tasks")
+@click.argument("business_slug")
+def empire_tasks(business_slug: str) -> None:
+    """Show worker tasks for one business run."""
+    from cato.pipeline.runtime import EmpireRuntime
+
+    runtime = EmpireRuntime(CatoConfig.load())
+    tasks = runtime.tasks_for(business_slug)
+    if not tasks:
+        safe_print(f"No tasks found for '{business_slug}'.")
+        return
+
+    table = Table(title=f"Empire Tasks: {business_slug}")
+    table.add_column("Task", style="cyan")
+    table.add_column("Worker")
+    table.add_column("Phase")
+    table.add_column("Status")
+    table.add_column("Note")
+    for task in tasks:
+        table.add_row(
+            task["task_id"],
+            task["worker"],
+            str(task["phase"]),
+            task["status"],
+            task["note"] or "",
+        )
+    console.print(table)
+
+
+@empire_cmd.command("prompt")
+@click.argument("business_slug")
+@click.argument("phase", type=int)
+@click.option("--raw", is_flag=True, help="Print only the raw prompt body.")
+def empire_prompt(business_slug: str, phase: int, raw: bool) -> None:
+    """Show the generated prompt and requirements for one phase."""
+    from cato.pipeline.runtime import EmpireRuntime
+
+    runtime = EmpireRuntime(CatoConfig.load())
+    bundle = runtime.build_phase_prompt(business_slug=business_slug, phase=phase)
+
+    if raw:
+        safe_print(bundle.prompt)
+        return
+
+    safe_print(f"Phase {phase}: {bundle.spec.name}")
+    safe_print(f"Worker: {bundle.spec.worker}")
+    safe_print(f"Model tier: {bundle.spec.model_tier}")
+    safe_print(f"Output dir: {bundle.spec.output_dir}")
+    if bundle.spec.support_workers:
+        safe_print(f"Support workers: {', '.join(bundle.spec.support_workers)}")
+    if bundle.source_files:
+        safe_print("Source files:")
+        for path in bundle.source_files:
+            safe_print(f"  - {path}")
+    if bundle.requirements:
+        safe_print("Required follow-up scripts:")
+        for req in bundle.requirements:
+            script = str(req.script) if req.script else "(none)"
+            strict = "required" if req.exit_code_0_required else "non-blocking"
+            args = " ".join(req.args)
+            safe_print(f"  - {script} {args} [{strict}]")
+    safe_print("")
+    safe_print(bundle.prompt)
+
+
+@empire_cmd.command("dispatch")
+@click.argument("business_slug")
+@click.argument("phase", type=int)
+@click.option("--prompt", default=None, help="Inline prompt text.")
+@click.option(
+    "--prompt-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Markdown file containing the prompt.",
+)
+@click.option("--worker", "worker_override", default=None, help="Override worker adapter.")
+@click.option(
+    "--workdir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Working directory override.",
+)
+@click.option("--timeout", "timeout_sec", default=300.0, show_default=True, type=float)
+def empire_dispatch(
+    business_slug: str,
+    phase: int,
+    prompt: Optional[str],
+    prompt_file: Optional[Path],
+    worker_override: Optional[str],
+    workdir: Optional[Path],
+    timeout_sec: float,
+) -> None:
+    """Dispatch one phase to its assigned worker CLI."""
+    import asyncio as _asyncio
+
+    from cato.pipeline.runtime import EmpireRuntime
+
+    prompt_text = prompt or (prompt_file.read_text(encoding="utf-8") if prompt_file else None)
+    runtime = EmpireRuntime(CatoConfig.load())
+    bundle = runtime.build_phase_prompt(business_slug=business_slug, phase=phase)
+
+    async def _run() -> None:
+        summary = await runtime.execute_phase(
+            business_slug=business_slug,
+            phase=phase,
+            prompt=prompt_text,
+            worker_override=worker_override,
+            workdir=workdir,
+            timeout_sec=timeout_sec,
+        )
+        result = summary["worker_result"]
+        if result.success:
+            safe_print(f"Phase {phase} finished with {result.worker}.")
+            if summary["requirement_results"]:
+                safe_print("Follow-up scripts:")
+                for req_result in summary["requirement_results"]:
+                    status = "ok" if req_result["success"] else f"exit {req_result['exit_code']}"
+                    safe_print(f"  - {req_result['script']} [{status}]")
+            elif bundle.requirements:
+                safe_print("No follow-up scripts were run.")
+            validation = summary.get("validation")
+            if validation is not None:
+                safe_print("Validation: passed")
+                for warning in validation.warnings:
+                    safe_print(f"  warning: {warning}")
+            if result.response:
+                safe_print(result.response)
+            return
+        raise click.ClickException(result.error or f"Phase {phase} failed.")
+
+    _asyncio.run(_run())
+
+
+@empire_cmd.command("resume")
+@click.argument("business_slug")
+@click.option("--phase", "start_phase", required=True, type=int, help="Phase number to resume from.")
+@click.option("--through", "through_phase", default=9, show_default=True, type=int)
+@click.option("--timeout", "timeout_sec", default=300.0, show_default=True, type=float)
+def empire_resume(
+    business_slug: str,
+    start_phase: int,
+    through_phase: int,
+    timeout_sec: float,
+) -> None:
+    """Resume an existing business pipeline from a chosen phase."""
+    import asyncio as _asyncio
+
+    from cato.pipeline.runtime import EmpireRuntime
+
+    runtime = EmpireRuntime(CatoConfig.load())
+
+    async def _run() -> None:
+        summary = await runtime.run_pipeline(
+            business_slug=business_slug,
+            start_phase=start_phase,
+            through_phase=through_phase,
+            stop_for_approval=(start_phase < 8),
+            timeout_sec=timeout_sec,
+        )
+        safe_print(f"Status: {summary['status']}")
+        safe_print(f"Completed phases in this run: {summary['completed_phases']}")
+        if summary["status"] == "AWAITING_APPROVAL":
+            safe_print("Stopped at Phase 7 approval gate.")
+
+    _asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
 # cato tools — Skill 8 (Irreversibility Classifier)
 # ---------------------------------------------------------------------------
 
@@ -2406,3 +2784,7 @@ def cmd_token_revoke(token_id: str, reason: str) -> None:
     ok = store.revoke(token_id, reason=reason)
     safe_print("Revoked." if ok else f"Token {token_id!r} not found.")
     store.close()
+
+
+if __name__ == "__main__":
+    main()

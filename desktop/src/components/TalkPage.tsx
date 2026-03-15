@@ -31,7 +31,7 @@ export interface TalkPageProps {
   isLoading: boolean;
   synthesis: SynthesisResult | null;
   error?: string | null;
-  connectionStatus?: "connected" | "disconnected" | "reconnecting";
+  connectionStatus?: "connecting" | "connected" | "disconnected" | "reconnecting" | "closed";
 }
 
 const MODEL_CONFIG: Record<string, { label: string; color: string }> = {

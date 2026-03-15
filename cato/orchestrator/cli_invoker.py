@@ -1,12 +1,24 @@
 """
-Async CLI invoker for Claude CLI, Codex CLI, and Gemini CLI.
+Async CLI invoker for Claude CLI, Codex CLI, Gemini CLI, and Cursor Agent.
 Handles parallel invocation of multiple models with fallback support.
 
-All three models are invoked via their installed CLIs (claude, codex, gemini)
+All models are invoked via their installed CLIs (claude, codex, gemini, cursor)
 using asyncio.create_subprocess_exec() for true non-blocking parallelism.
 
 On Windows, .CMD batch wrappers (npm-installed CLIs like codex and gemini)
 are resolved via shutil.which() and executed through cmd.exe /c.
+
+Subagent routing
+----------------
+``invoke_subagent(prompt, task, backend)`` lets Cato delegate coding tasks to
+whichever CLI the user has configured as their ``subagent_coding_backend``.
+This mirrors what OpenClaw does with ChatGPT (route coding to GPT via OAuth),
+but Cato supports four backends: claude, codex, gemini, cursor.
+
+Users configure this in ~/.cato/config.yaml::
+
+    subagent_enabled: true
+    subagent_coding_backend: codex   # or claude / gemini / cursor
 """
 
 import asyncio
@@ -14,9 +26,11 @@ import logging
 import shutil
 import sys
 import time
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from cato.orchestrator.confidence_extractor import extract_confidence
+
+SubagentBackend = Literal["claude", "codex", "gemini", "cursor"]
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +76,7 @@ def _resolve_cli(name: str) -> list:
 async def _run_subprocess_async(
     args: list,
     timeout_sec: float = 60.0,
+    stdin_data: Optional[bytes] = None,
 ) -> str:
     """
     Run a subprocess asynchronously without blocking the event loop.
@@ -69,6 +84,8 @@ async def _run_subprocess_async(
     Args:
         args: Command and arguments list.
         timeout_sec: Maximum time to wait for the process.
+        stdin_data: Optional bytes to write to the process stdin before
+            waiting for output.  When None, stdin is inherited (default).
 
     Returns:
         stdout text on success.
@@ -78,13 +95,19 @@ async def _run_subprocess_async(
         asyncio.TimeoutError: If the process exceeds timeout_sec.
         SubprocessError: If the process exits with non-zero return code.
     """
+    import os as _os
+    _env = {k: v for k, v in _os.environ.items() if k != "CLAUDECODE"}
     proc = await asyncio.create_subprocess_exec(
         *args,
+        stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=_env,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=stdin_data), timeout=timeout_sec
+        )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.communicate()  # reap the zombie
@@ -452,3 +475,298 @@ async def invoke_with_early_termination(
             await asyncio.gather(*model_tasks, return_exceptions=True)
     else:
         await asyncio.gather(*model_tasks, return_exceptions=True)
+
+
+def _resolve_cursor_agent() -> Tuple[str, str]:
+    """
+    Locate the cursor-agent Node.js binary and index.js entry point.
+
+    The cursor-agent CLI installs under:
+        %LOCALAPPDATA%\\cursor-agent\\versions\\<version>\\
+
+    It ships its own node.exe and a bundled index.js.  We use these directly
+    rather than going through the .cmd/.ps1 launcher, which hangs in a
+    non-interactive shell (PowerShell startup overhead + no TTY).
+
+    Returns:
+        (node_exe_path, index_js_path) — both absolute paths.
+
+    Raises:
+        FileNotFoundError: If the cursor-agent installation is not found.
+    """
+    import os
+    from pathlib import Path
+
+    base = Path(os.environ.get("LOCALAPPDATA", "")) / "cursor-agent" / "versions"
+    if not base.is_dir():
+        raise FileNotFoundError(f"cursor-agent not installed (looked in {base})")
+
+    # Pick the lexicographically latest version directory
+    versions = sorted(p for p in base.iterdir() if p.is_dir())
+    if not versions:
+        raise FileNotFoundError(f"cursor-agent versions directory is empty: {base}")
+
+    latest = versions[-1]
+    node_exe = latest / "node.exe"
+    index_js = latest / "index.js"
+
+    if not node_exe.exists():
+        raise FileNotFoundError(f"cursor-agent node.exe not found: {node_exe}")
+    if not index_js.exists():
+        raise FileNotFoundError(f"cursor-agent index.js not found: {index_js}")
+
+    return str(node_exe), str(index_js)
+
+
+async def invoke_cursor_cli(prompt: str, task: str) -> Dict:
+    """
+    Invoke Cursor Agent CLI in headless (non-interactive) mode.
+
+    The cursor-agent CLI (``agent`` command, v2026.02.27+) supports a
+    ``--print`` flag that enables headless/scriptable output — equivalent to
+    Claude's ``-p`` flag.  Combined with ``--trust`` (skip workspace prompt)
+    and ``--yolo`` (allow all tool use without confirmation), it can be driven
+    from a subprocess without a TTY.
+
+    The .cmd/.ps1 launchers hang in a non-interactive shell due to PowerShell
+    startup overhead.  This function bypasses them by invoking node.exe and
+    index.js from the versioned installation directory directly.
+
+    Auth state is read from ~/.cursor/cli-config.json (set by ``agent login``).
+    Model defaults to ``auto`` (Cursor's model router) to avoid hitting
+    per-model usage caps on individual Claude/Codex allocations.
+
+    Falls back to a degraded mock if:
+    - cursor-agent is not installed
+    - The subprocess times out (120 s)
+    - The agent returns a non-zero exit code
+
+    Args:
+        prompt: Context or code to analyse.
+        task: High-level task description.
+
+    Returns:
+        dict with model, response, confidence, latency_ms, degraded, source keys.
+    """
+    start_time = time.time()
+
+    try:
+        node_exe, index_js = _resolve_cursor_agent()
+        full_prompt = f"Task: {task}\n\nContext: {prompt}"
+
+        response_text = await _run_subprocess_async(
+            [node_exe, index_js, "--print", "--trust", "--yolo", "--model", "auto", full_prompt],
+            timeout_sec=120.0,
+        )
+
+        confidence = extract_confidence(response_text)
+        latency_ms = (time.time() - start_time) * 1000
+        return {
+            "model": "cursor",
+            "response": response_text,
+            "confidence": confidence,
+            "latency_ms": latency_ms,
+            "degraded": False,
+            "source": "subprocess",
+        }
+    except FileNotFoundError as e:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.warning("cursor-agent not found: %s", e)
+        return {
+            "model": "cursor",
+            "response": f"[Cursor] Agent CLI not installed. Run `agent login` to set up. ({e})",
+            "confidence": 0.0,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "mock",
+        }
+    except SubprocessError as e:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.error("cursor-agent failed (rc=%d): %s", e.returncode, e.stderr[:200])
+        return {
+            "model": "cursor",
+            "response": f"[Cursor Error] {e.stderr[:500]}",
+            "confidence": 0.0,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "subprocess",
+        }
+    except asyncio.TimeoutError:
+        latency_ms = (time.time() - start_time) * 1000
+        return {
+            "model": "cursor",
+            "response": "[Cursor Error] Agent timed out after 120s",
+            "confidence": 0.0,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "subprocess",
+        }
+    except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        return {
+            "model": "cursor",
+            "response": f"[Cursor Error] {str(e)}",
+            "confidence": 0.0,
+            "latency_ms": latency_ms,
+            "degraded": True,
+            "source": "mock",
+        }
+
+
+async def invoke_subagent(
+    prompt: str,
+    task: str,
+    backend: SubagentBackend = "codex",
+) -> Dict:
+    """
+    Route a task to a specific CLI backend as a subagent.
+
+    This is Cato's answer to OpenClaw's ChatGPT-subagent trick.  OpenClaw
+    lets users point coding tasks at their ChatGPT plan to leverage OpenAI's
+    included usage.  Cato does the same but supports four backends:
+
+    - ``claude``  — Claude Code CLI (uses your Anthropic plan / free tier)
+    - ``codex``   — OpenAI Codex CLI (uses your OpenAI plan)
+    - ``gemini``  — Google Gemini CLI (uses your Google plan / free tier)
+    - ``cursor``  — Cursor Agent CLI (uses your Cursor Pro subscription)
+
+    The active backend is read from ``CatoConfig.subagent_coding_backend``
+    (set in ~/.cato/config.yaml) so users can switch without code changes.
+
+    Args:
+        prompt: Context or code to send to the subagent.
+        task: High-level task description.
+        backend: Which CLI to invoke ("claude", "codex", "gemini", "cursor").
+
+    Returns:
+        Same dict shape as the individual invoke_* functions.
+    """
+    _dispatch: dict[str, Any] = {
+        "claude": invoke_claude_api,
+        "codex": invoke_codex_cli,
+        "gemini": invoke_gemini_cli,
+        "cursor": invoke_cursor_cli,
+    }
+    fn = _dispatch.get(backend)
+    if fn is None:
+        logger.warning("Unknown subagent backend %r, falling back to codex", backend)
+        fn = invoke_codex_cli
+
+    logger.info("Subagent routing task to backend=%r", backend)
+    return await fn(prompt, task)
+
+
+# ---------------------------------------------------------------------------
+# Genesis pipeline phase routing
+# ---------------------------------------------------------------------------
+
+# Primary and fallback CLI workers for each Genesis phase (1-indexed).
+# None as fallback means no automatic retry — surface error to user directly.
+_GENESIS_PHASE_ROUTING: dict[int, tuple[SubagentBackend, SubagentBackend | None]] = {
+    1: ("claude", None),    # Market research — deep research + web tools
+    2: ("claude", None),    # SEO + marketing — structured doc generation
+    3: ("gemini", "claude"),# Design system — large-context descriptions; fallback if gemini hangs
+    4: ("claude", "codex"), # Technical spec — multi-tool orchestration
+    5: ("claude", "codex"), # Construction (Ralph loop) — loop controller
+    6: ("codex", "claude"), # Test + fix — codex --full-auto fix loop
+    7: ("claude", None),    # Deploy + validate — vault access + approval gate
+    8: ("claude", None),    # Marketing automation — fan-out coordination
+    9: ("claude", None),    # Long-term health — read-only analysis
+}
+
+# Per-phase timeouts in seconds.
+_GENESIS_PHASE_TIMEOUTS: dict[int, float] = {
+    1: 180.0,
+    2: 120.0,
+    3: 120.0,
+    4: 150.0,
+    5: 600.0,
+    6: 300.0,
+    7: 240.0,
+    8: 120.0,
+    9:  60.0,
+}
+
+
+async def invoke_for_genesis_phase(
+    phase: int,
+    context: str,
+    business_id: str,
+) -> Dict:
+    """
+    Route a Genesis pipeline phase to its designated CLI worker.
+
+    Looks up the primary backend for *phase* in ``_GENESIS_PHASE_ROUTING``,
+    calls ``invoke_subagent``, and automatically retries on the fallback
+    backend if the primary returns ``degraded=True``.  If both primary and
+    fallback degrade, the degraded fallback result is returned and the caller
+    is responsible for Andon Cord escalation.
+
+    Args:
+        phase: Genesis phase number (1-9).
+        context: Full prompt context for the phase (research brief, spec, etc.).
+        business_id: Slug identifier for the business build (used in task label).
+
+    Returns:
+        Same dict shape as ``invoke_subagent``:
+        {"model", "response", "confidence", "latency_ms", "degraded", "source"}
+
+    Raises:
+        ValueError: If *phase* is not in the range 1-9.
+    """
+    if phase not in _GENESIS_PHASE_ROUTING:
+        raise ValueError(
+            f"Invalid Genesis phase {phase!r}. Must be an integer 1-9."
+        )
+
+    primary, fallback = _GENESIS_PHASE_ROUTING[phase]
+    timeout = _GENESIS_PHASE_TIMEOUTS[phase]
+    task_label = f"genesis:{business_id}:phase{phase}"
+
+    logger.info(
+        "Genesis phase %d routing to primary=%r (fallback=%r, timeout=%.0fs) business=%r",
+        phase, primary, fallback, timeout, business_id,
+    )
+
+    import asyncio as _asyncio
+    try:
+        result = await _asyncio.wait_for(
+            invoke_subagent(context, task_label, backend=primary),
+            timeout=timeout,
+        )
+    except _asyncio.TimeoutError:
+        logger.warning(
+            "Genesis phase %d primary=%r timed out after %.0fs",
+            phase, primary, timeout,
+        )
+        result = {
+            "model": primary, "response": f"[Timeout] phase {phase} exceeded {timeout:.0f}s",
+            "confidence": 0.0, "latency_ms": timeout * 1000, "degraded": True, "source": "timeout",
+        }
+
+    if result.get("degraded") and fallback is not None:
+        logger.warning(
+            "Genesis phase %d primary=%r degraded, retrying with fallback=%r",
+            phase, primary, fallback,
+        )
+        try:
+            result = await _asyncio.wait_for(
+                invoke_subagent(context, task_label, backend=fallback),
+                timeout=timeout,
+            )
+        except _asyncio.TimeoutError:
+            logger.error(
+                "Genesis phase %d fallback=%r also timed out — Andon Cord needed",
+                phase, fallback,
+            )
+            result = {
+                "model": fallback, "response": f"[Timeout] phase {phase} fallback exceeded {timeout:.0f}s",
+                "confidence": 0.0, "latency_ms": timeout * 1000, "degraded": True, "source": "timeout",
+            }
+        if result.get("degraded"):
+            logger.error(
+                "Genesis phase %d fallback=%r also degraded — Andon Cord needed",
+                phase, fallback,
+            )
+
+    return result

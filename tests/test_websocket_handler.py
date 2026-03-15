@@ -505,3 +505,198 @@ class TestUIServerIntegration(AioHTTPTestCase):
         assert resp.status == 200
         data = await resp.json()
         assert "task_id" in data
+
+
+# ── GET /api/config tests ───────────────────────────────────────────────── #
+
+class TestGetConfig(AioHTTPTestCase):
+    async def get_application(self):
+        app = web.Application()
+        register_routes(app)
+        return app
+
+    async def test_returns_enabled_models(self):
+        from unittest.mock import MagicMock
+        mock_cfg = MagicMock()
+        mock_cfg.enabled_models = ["claude", "gemini"]
+        mock_cfg.subagent_enabled = False
+        mock_cfg.subagent_coding_backend = "codex"
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            # Re-import to get the patched version
+            resp = await self.client.get("/api/config")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "enabled_models" in data
+        assert "subagent_enabled" in data
+        assert "subagent_coding_backend" in data
+
+    async def test_returns_200_with_defaults_on_config_error(self):
+        """If CatoConfig.load() raises, fallback defaults are returned."""
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.side_effect = Exception("config broken")
+            resp = await self.client.get("/api/config")
+        # Should still return 200 with safe defaults (enabled_models + subagent fields)
+        assert resp.status == 200
+        data = await resp.json()
+        assert "enabled_models" in data
+        assert isinstance(data["enabled_models"], list)
+        assert len(data["enabled_models"]) > 0
+
+
+# ── PATCH /api/config tests ─────────────────────────────────────────────── #
+
+class TestPatchConfig(AioHTTPTestCase):
+    async def get_application(self):
+        app = web.Application()
+        register_routes(app)
+        return app
+
+    def _make_mock_cfg(self):
+        from unittest.mock import MagicMock
+        mock_cfg = MagicMock()
+        mock_cfg.enabled_models = ["claude", "codex", "gemini"]
+        mock_cfg.subagent_enabled = False
+        mock_cfg.subagent_coding_backend = "codex"
+        mock_cfg.save.return_value = None
+        return mock_cfg
+
+    async def test_patch_enabled_models(self):
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"enabled_models": ["claude", "cursor"]},
+            )
+        assert resp.status == 200
+        mock_cfg.save.assert_called_once()
+
+    async def test_patch_subagent_enabled(self):
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"subagent_enabled": True},
+            )
+        assert resp.status == 200
+
+    async def test_patch_subagent_backend(self):
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"subagent_coding_backend": "cursor"},
+            )
+        assert resp.status == 200
+
+    async def test_invalid_json_returns_400(self):
+        resp = await self.client.patch(
+            "/api/config",
+            data="not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status == 400
+
+    async def test_empty_enabled_models_returns_400(self):
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"enabled_models": []},
+            )
+        assert resp.status == 400
+
+    async def test_unknown_models_filtered_returns_400(self):
+        """A list containing only unknown model names is rejected."""
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"enabled_models": ["chatgpt", "grok"]},
+            )
+        assert resp.status == 400
+
+    async def test_invalid_backend_returns_400(self):
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"subagent_coding_backend": "chatgpt"},
+            )
+        assert resp.status == 400
+
+    async def test_subagent_enabled_not_bool_returns_400(self):
+        mock_cfg = self._make_mock_cfg()
+        with patch("cato.api.websocket_handler.CatoConfig") as MockCfg:
+            MockCfg.load.return_value = mock_cfg
+            resp = await self.client.patch(
+                "/api/config",
+                json={"subagent_enabled": "yes"},
+            )
+        assert resp.status == 400
+
+
+# ── enabled_models filtering in invoke_coding_agent ─────────────────────── #
+
+class TestEnabledModelsInvoke(AioHTTPTestCase):
+    async def get_application(self):
+        app = web.Application()
+        register_routes(app)
+        return app
+
+    async def test_enabled_models_stored_with_task(self):
+        resp = await self.client.post(
+            "/api/coding-agent/invoke",
+            json={"task": "Check only enabled models stored", "enabled_models": ["claude", "cursor"]},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        task_id = data["task_id"]
+        assert _task_store[task_id]["enabled_models"] == ["claude", "cursor"]
+
+    async def test_unknown_models_filtered_from_enabled_list(self):
+        resp = await self.client.post(
+            "/api/coding-agent/invoke",
+            json={"task": "Filter unknown models from enabled list", "enabled_models": ["claude", "chatgpt", "grok"]},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        task_id = data["task_id"]
+        # chatgpt and grok are unknown — only claude should survive
+        assert _task_store[task_id]["enabled_models"] == ["claude"]
+
+    async def test_all_unknown_models_falls_back_to_default(self):
+        resp = await self.client.post(
+            "/api/coding-agent/invoke",
+            json={"task": "All unknown models falls back to defaults", "enabled_models": ["chatgpt", "grok"]},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        task_id = data["task_id"]
+        assert _task_store[task_id]["enabled_models"] == ["claude", "codex", "gemini"]
+
+    async def test_non_list_enabled_models_falls_back_to_default(self):
+        resp = await self.client.post(
+            "/api/coding-agent/invoke",
+            json={"task": "Non-list enabled_models falls back", "enabled_models": "claude"},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        task_id = data["task_id"]
+        assert _task_store[task_id]["enabled_models"] == ["claude", "codex", "gemini"]
+
+    async def test_cursor_accepted_as_valid_model(self):
+        resp = await self.client.post(
+            "/api/coding-agent/invoke",
+            json={"task": "Cursor is a valid enabled model", "enabled_models": ["cursor"]},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        task_id = data["task_id"]
+        assert _task_store[task_id]["enabled_models"] == ["cursor"]

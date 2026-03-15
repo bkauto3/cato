@@ -6,7 +6,21 @@ gaps, and manages interrupt budgets for clarification sub-queries.
 """
 
 import re
+import sqlite3
 import time
+from pathlib import Path
+from typing import Optional
+
+
+_GAPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS epistemic_unresolved_gaps (
+    gap_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    premise    TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    timestamp  REAL NOT NULL,
+    created_at REAL NOT NULL
+);
+"""
 
 
 class EpistemicMonitor:
@@ -20,12 +34,20 @@ class EpistemicMonitor:
         "the fact that",
     ]
 
-    def __init__(self, threshold: float = 0.70, max_interrupts: int = 3):
+    def __init__(
+        self,
+        threshold: float = 0.70,
+        max_interrupts: int = 3,
+        db_path: Optional[Path] = None,
+    ):
         self.threshold = threshold
         self.max_interrupts = max_interrupts
         self._premise_confidence_map: dict[str, float] = {}
         self._interrupt_count: int = 0
         self._unresolved_gaps: list[dict] = []
+        self._db_path = db_path
+        if db_path is not None:
+            self._load_unresolved_gaps()
 
     # ------------------------------------------------------------------
     # Premise extraction
@@ -35,12 +57,12 @@ class EpistemicMonitor:
         """
         Extract factual premises from *text*.
 
-        Splits on sentence boundaries (``". "`` or newline), then keeps every
-        sentence that contains at least one of the marker phrases.  Returns
-        the matched sentences (stripped).
+        Splits on sentence boundaries: ``". "``, ``"! "``, ``"? "``, or newline.
+        Then keeps every sentence that contains at least one of the marker
+        phrases. Returns the matched sentences (stripped).
         """
-        # Split on ". " or "\n" to get individual sentences
-        sentences = re.split(r"\.\s+|\n", text)
+        # Split on ". ", "! ", "? ", or newline to get individual sentences
+        sentences = re.split(r"[.!?]\s+|\n", text)
         premises: list[str] = []
         for sentence in sentences:
             stripped = sentence.strip()
@@ -83,14 +105,12 @@ class EpistemicMonitor:
     # ------------------------------------------------------------------
 
     def record_unresolved(self, premise: str, confidence: float) -> None:
-        """Append *premise* and its *confidence* to the unresolved gaps list."""
-        self._unresolved_gaps.append(
-            {
-                "premise": premise,
-                "confidence": confidence,
-                "timestamp": time.time(),
-            }
-        )
+        """Append *premise* and its *confidence* to the unresolved gaps list and persist if db_path set."""
+        ts = time.time()
+        gap = {"premise": premise, "confidence": confidence, "timestamp": ts}
+        self._unresolved_gaps.append(gap)
+        if self._db_path is not None:
+            self._persist_gap(premise, confidence, ts)
 
     # ------------------------------------------------------------------
     # Interrupt budget
@@ -109,9 +129,42 @@ class EpistemicMonitor:
     # ------------------------------------------------------------------
 
     def reset_session(self) -> None:
-        """Clear all per-session state (confidence map and interrupt count)."""
+        """Clear all per-session state (confidence map and interrupt count). Unresolved gaps are not cleared."""
         self._premise_confidence_map.clear()
         self._interrupt_count = 0
+
+    def _conn(self) -> sqlite3.Connection:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        conn.executescript(_GAPS_SCHEMA)
+        conn.commit()
+        return conn
+
+    def _load_unresolved_gaps(self) -> None:
+        """Load persisted unresolved gaps from SQLite."""
+        try:
+            conn = self._conn()
+            rows = conn.execute(
+                "SELECT premise, confidence, timestamp FROM epistemic_unresolved_gaps ORDER BY timestamp"
+            ).fetchall()
+            conn.close()
+            self._unresolved_gaps = [
+                {"premise": r[0], "confidence": r[1], "timestamp": r[2]} for r in rows
+            ]
+        except Exception:
+            self._unresolved_gaps = []
+
+    def _persist_gap(self, premise: str, confidence: float, timestamp: float) -> None:
+        try:
+            conn = self._conn()
+            conn.execute(
+                "INSERT INTO epistemic_unresolved_gaps (premise, confidence, timestamp, created_at) VALUES (?, ?, ?, ?)",
+                (premise, confidence, timestamp, time.time()),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Reporting

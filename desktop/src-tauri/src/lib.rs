@@ -61,7 +61,8 @@ pub fn run() {
         )
         // ── State ──
         .manage(AppState {
-            sidecar: Arc::new(Mutex::new(sidecar::SidecarManager::new(8080, 8081))),
+            // The desktop uses the daemon's aiohttp surface for both HTTP and WebSocket traffic.
+            sidecar: Arc::new(Mutex::new(sidecar::SidecarManager::new(8080, 8080))),
         })
         // ── Commands ──
         .invoke_handler(tauri::generate_handler![

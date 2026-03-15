@@ -3,7 +3,7 @@
 # Usage: ./scripts/build.sh [--dev|--release]
 #
 # Steps:
-#   1. (Optional) Freeze the Python daemon into a standalone binary
+#   1. (Release only) Freeze the Python daemon into a standalone sidecar binary
 #   2. Build the Vite frontend
 #   3. Build the Tauri app
 
@@ -20,45 +20,21 @@ echo "Mode: $MODE"
 echo "Desktop dir: $DESKTOP_DIR"
 echo ""
 
+echo "--- Syncing desktop manifests to the canonical Cato version ---"
+python "$REPO_ROOT/scripts/sync_version.py" --write
+echo ""
+
 # ── Step 1: Freeze Python daemon (release only) ──
 if [ "$MODE" = "--release" ]; then
-    echo "--- Freezing Cato daemon with PyInstaller ---"
-
-    # Determine target triple for Tauri sidecar naming
-    ARCH="$(uname -m)"
-    OS="$(uname -s)"
-    case "$OS" in
-        Linux*)  TARGET="${ARCH}-unknown-linux-gnu" ;;
-        Darwin*) TARGET="${ARCH}-apple-darwin" ;;
-        *)       TARGET="${ARCH}-pc-windows-msvc" ;;
-    esac
-
-    BINARIES_DIR="$DESKTOP_DIR/src-tauri/binaries"
-    mkdir -p "$BINARIES_DIR"
-
-    # Build with PyInstaller
-    if command -v pyinstaller &>/dev/null; then
-        cd "$REPO_ROOT"
-        pyinstaller \
-            --onefile \
-            --name "cato-${TARGET}" \
-            --distpath "$BINARIES_DIR" \
-            --noconfirm \
-            cato/cli.py
-        echo "Frozen binary: $BINARIES_DIR/cato-${TARGET}"
-    else
-        echo "WARNING: PyInstaller not found. Skipping binary freeze."
-        echo "The app will fall back to the system 'cato' command."
-    fi
-
-    cd "$DESKTOP_DIR"
+    echo "--- Staging frozen Cato sidecar ---"
+    python scripts/stage_sidecar.py
     echo ""
 fi
 
 # ── Step 2: Install frontend dependencies ──
 echo "--- Installing npm dependencies ---"
 cd "$DESKTOP_DIR"
-npm install
+npm ci
 
 # ── Step 3: Build ──
 if [ "$MODE" = "--release" ]; then

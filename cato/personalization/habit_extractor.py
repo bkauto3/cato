@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 import time
 import uuid
@@ -48,6 +49,11 @@ CREATE INDEX IF NOT EXISTS idx_ih_affinity ON inferred_habits(skill_affinity);
 
 # Minimum events before a habit is inferred
 _MIN_EVIDENCE = 5
+
+# Recency decay: events older than this (seconds) get zero weight in pattern extraction.
+# Habits are weighted by recency so recent repeated behavior wins over stale patterns.
+# Default: 30 days (matches default window_days).
+RECENCY_CUTOFF_DAYS = 30
 
 # Event types
 EVENT_ACCEPTED = "RESPONSE_ACCEPTED"
@@ -131,34 +137,57 @@ class HabitExtractor:
 
     def extract_patterns(self, window_days: int = 30) -> list[InferredHabit]:
         """
-        Run pattern extraction over rolling window.
-        Returns newly inferred habits (not yet stored).
+        Run pattern extraction over rolling window with recency weighting.
+
+        Events are weighted by recency: recent events count more than old ones
+        (exponential decay by age). Habits that are only supported by old events
+        age out; repeated recent behavior produces higher-weighted evidence and
+        wins. The window is [now - window_days, now]; events outside this window
+        are ignored. Returns newly inferred habits (not yet stored).
         """
-        since = time.time() - window_days * 86400
+        now = time.time()
+        since = now - window_days * 86400
         habits: list[InferredHabit] = []
 
-        # Pattern 1: Rejection rate by skill — high rejection = agent blind spot
-        rows = self._conn.execute(
-            """SELECT skill_used,
-                      COUNT(*) as total,
-                      SUM(CASE WHEN event_type = ? THEN 1 ELSE 0 END) as rejections
+        # Recency weighting: weight = exp(-age_days / half_life). half_life = window_days/4 so recent half dominates
+        half_life_days = max(1.0, window_days / 4.0)
+        half_life_sec = half_life_days * 86400
+
+        # Pattern 1: Rejection rate by skill — high rejection = agent blind spot (with recency weighting)
+        event_rows = self._conn.execute(
+            """SELECT skill_used, timestamp, event_type
                FROM interaction_events
                WHERE timestamp > ? AND skill_used != ''
-               GROUP BY skill_used
-               HAVING total >= ?""",
-            (EVENT_REJECTED, since, _MIN_EVIDENCE),
+               ORDER BY timestamp""",
+            (since,),
         ).fetchall()
 
-        for row in rows:
+        # Aggregate per-skill: weighted total and weighted rejections
+        skill_weighted: dict[str, tuple[float, float]] = {}  # skill -> (weighted_total, weighted_rejections)
+        for row in event_rows:
             skill = row["skill_used"]
-            rejection_rate = row["rejections"] / row["total"]
+            ts = row["timestamp"]
+            age_sec = now - ts
+            if age_sec <= 0:
+                w = 1.0
+            else:
+                w = math.exp(-age_sec / half_life_sec)
+            total_w, rej_w = skill_weighted.get(skill, (0.0, 0.0))
+            total_w += w
+            rej_w += w if row["event_type"] == EVENT_REJECTED else 0.0
+            skill_weighted[skill] = (total_w, rej_w)
+
+        for skill, (total_w, rej_w) in skill_weighted.items():
+            if total_w < _MIN_EVIDENCE:
+                continue
+            rejection_rate = rej_w / total_w
             if rejection_rate > 0.6:
                 habits.append(InferredHabit(
                     habit_id=str(uuid.uuid4()),
                     habit_description=(
                         f"User frequently rejects {skill} responses ({rejection_rate:.0%} rejection rate)"
                     ),
-                    evidence_count=row["total"],
+                    evidence_count=int(round(total_w)),
                     confidence=min(0.95, rejection_rate),
                     skill_affinity=skill,
                     soft_constraint=(
@@ -169,27 +198,31 @@ class HabitExtractor:
                     user_confirmed=None,
                 ))
 
-        # Pattern 2: Security follow-ups on file write / API calls
-        security_followups = self._conn.execute(
-            """SELECT COUNT(*) as n FROM interaction_events
-               WHERE timestamp > ?
-                 AND event_type = ?
-                 AND json_extract(event_detail, '$.followup_type') = 'security'""",
-            (since, EVENT_FOLLOWUP),
-        ).fetchone()["n"]
-
-        total_write_api = self._conn.execute(
-            """SELECT COUNT(*) as n FROM interaction_events
-               WHERE timestamp > ?
-                 AND skill_used IN ('write_file', 'edit_file', 'api_payment', 'api.call')""",
+        # Pattern 2: Security follow-ups on file write / API calls (with recency weighting)
+        sec_rows = self._conn.execute(
+            """SELECT timestamp, event_type, event_detail, skill_used FROM interaction_events
+               WHERE timestamp > ?""",
             (since,),
-        ).fetchone()["n"]
-
-        if total_write_api >= _MIN_EVIDENCE and security_followups / max(total_write_api, 1) > 0.6:
+        ).fetchall()
+        weighted_sec_followups = 0.0
+        weighted_write_api = 0.0
+        for row in sec_rows:
+            age_sec = now - row["timestamp"]
+            w = 1.0 if age_sec <= 0 else math.exp(-age_sec / half_life_sec)
+            if row["event_type"] == EVENT_FOLLOWUP:
+                try:
+                    detail = json.loads(row["event_detail"] or "{}")
+                    if detail.get("followup_type") == "security":
+                        weighted_sec_followups += w
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if row["skill_used"] in ("write_file", "edit_file", "api_payment", "api.call"):
+                weighted_write_api += w
+        if weighted_write_api >= _MIN_EVIDENCE and weighted_sec_followups / max(weighted_write_api, 1) > 0.6:
             habits.append(InferredHabit(
                 habit_id=str(uuid.uuid4()),
                 habit_description="User frequently asks security follow-up questions after file/API operations",
-                evidence_count=security_followups,
+                evidence_count=int(round(weighted_sec_followups)),
                 confidence=0.85,
                 skill_affinity="all",
                 soft_constraint="Include a brief security note when writing files or making API calls.",

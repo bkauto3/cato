@@ -8,8 +8,10 @@ import { TalkPage } from "../components/TalkPage";
 import type { SynthesisResult } from "../components/TalkPage";
 import { TaskInput } from "../components/TaskInput";
 import { ConfidenceBadge } from "../components/ConfidenceBadge";
+import { ModelSettings } from "../components/ModelSettings";
 import { useTalkPageStream } from "../hooks/useTalkPageStream";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import logoSrc from "../assets/cato-logo.png";
 
 interface CodingAgentViewProps {
   wsBase?: string;
@@ -22,10 +24,11 @@ interface RecentTask {
   createdAt: number;
 }
 
-const MODELS = ["claude", "codex", "gemini"] as const;
+const ALL_MODELS = ["codex", "cursor", "claude", "gemini"] as const;
 const MODEL_CONFIG: Record<string, { label: string; color: string }> = {
-  claude: { label: "Claude",  color: "#3B82F6" },
   codex:  { label: "Codex",   color: "#F59E0B" },
+  cursor: { label: "Cursor",  color: "#22D3EE" },
+  claude: { label: "Claude",  color: "#3B82F6" },
   gemini: { label: "Gemini",  color: "#A855F7" },
 };
 const MAX_RECENT_TASKS = 10;
@@ -40,7 +43,7 @@ interface RightSidebarProps {
 }
 
 const RightSidebar: React.FC<RightSidebarProps> = ({
-  synthesis, isLoading, onCopy, onSave, taskId, copiedState,
+  synthesis, isLoading, onCopy, onSave, copiedState,
 }) => {
   if (isLoading && !synthesis) {
     return (
@@ -119,8 +122,9 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
   const [taskDescription, setTaskDescription] = useState("");
   const [copiedState, setCopiedState] = useState(false);
   const [recentTasks, setRecentTasks] = useLocalStorage<RecentTask[]>("cato-recent-tasks", []);
+  const [showSettings, setShowSettings] = useState(false);
 
-  const { messages, isLoading, synthesis, error, connectionStatus } =
+  const { messages, isLoading, synthesis, error, connectionStatus, cancel } =
     useTalkPageStream(taskId ?? "", wsBase);
 
   React.useEffect(() => {
@@ -145,12 +149,17 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
   }, []);
 
   const handleSave = useCallback((text: string, model: string) => {
+    // Sanitize model name to prevent path traversal in filename (KRAK-3)
+    const safeModel = model.replace(/[^a-z0-9-]/gi, "_").slice(0, 32);
     const blob = new Blob([text], { type: "text/plain" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `cato-${model}-result.txt`;
+    a.download = `cato-${safeModel}-result.txt`;
+    // Append to DOM so Firefox/Safari trigger the download reliably (ARCH-6)
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, []);
 
@@ -163,10 +172,12 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
     return (
       <div className="coding-entry">
         <div className="coding-entry-card">
-          <div className="coding-entry-icon">C</div>
+          <div className="coding-entry-icon">
+              <img src={logoSrc} alt="Cato" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: "12px" }} />
+            </div>
           <h1 className="coding-entry-title">Cato Coding Agent</h1>
           <p className="coding-entry-subtitle">
-            Submit a task to get responses from Claude, Codex, and Gemini
+            Submit a task to Codex, Cursor, Claude, and Gemini
           </p>
           <TaskInput
             onTaskCreated={handleTaskCreated}
@@ -201,9 +212,35 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
       <aside className="sidebar-left" aria-label="Task details">
         <div className="sidebar-header-section">
           <span>Task</span>
-          {isLoading && <span style={{ color: "#60a5fa", fontSize: 11 }}>Running...</span>}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {isLoading && (
+              <button
+                className="btn-cancel-sm"
+                onClick={cancel}
+                title="Cancel task"
+              >
+                ✕ Cancel
+              </button>
+            )}
+            <button
+              className="settings-gear-btn"
+              onClick={() => setShowSettings((s) => !s)}
+              aria-label="Model settings"
+              title="Model settings"
+            >
+              ⚙
+            </button>
+          </div>
         </div>
         <div className="sidebar-content">
+          {showSettings && (
+            <div style={{ marginBottom: 16 }}>
+              <ModelSettings
+                apiBase={apiBase ?? "http://127.0.0.1:8080"}
+                onClose={() => setShowSettings(false)}
+              />
+            </div>
+          )}
           <TaskInput
             readOnly={isLoading}
             defaultTask={taskDescription}
@@ -242,7 +279,7 @@ export const CodingAgentView: React.FC<CodingAgentViewProps> = ({ wsBase, apiBas
         )}
         <TalkPage
           task={taskDescription || `Task ${taskId}`}
-          models={[...MODELS]}
+          models={[...ALL_MODELS]}
           messages={messages}
           isLoading={isLoading}
           synthesis={synthesis}

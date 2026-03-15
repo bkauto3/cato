@@ -1,22 +1,106 @@
 /**
- * ChatView.tsx — Simple single-model chat interface.
- *
- * Connects to the Cato gateway WebSocket for general conversation.
+ * ChatView.tsx — Chat interface. Persists history across navigation, shows Telegram messages.
  */
 
 import React, { useState, useRef, useEffect, useCallback, type FormEvent } from "react";
-import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
+import { useChatStream, type ChatMessage, type ChatConnectionStatus } from "../hooks/useChatStream";
+import logoSrc from "../assets/cato-logo.png";
 
 interface ChatViewProps {
   wsBase?: string;
+  httpPort?: number;
+  onConnectionStatusChange?: (status: ChatConnectionStatus) => void;
 }
+
+interface BadgeProps {
+  source?: string;
+  model?: string;
+}
+
+const DEFAULT_MODELS = new Set([
+  "openrouter/minimax/minimax-m2.5",
+  "openrouter/minimax/minimax-2.5",
+  "minimax/minimax-m2.5",
+  "minimax/minimax-2.5",
+  "abab7-chat-preview",
+]);
+
+function normalizeModelLabel(model: string): string {
+  const raw = model.trim();
+  if (!raw) return "";
+  // Don't show a badge for the default model — it's just noise
+  if (DEFAULT_MODELS.has(raw.toLowerCase())) return "";
+
+  const upper = raw.toUpperCase();
+  // Friendly aliases for notable backends
+  if (upper.includes("CLAUDE")) return "CLAUDE";
+  if (upper.includes("CODEX")) return "CODEX";
+  if (upper.includes("GEMINI")) return "GEMINI";
+  if (upper.includes("CURSOR")) return "CURSOR";
+  if (upper.includes("SWARMSYNC")) return "SWARMSYNC";
+  if (upper.includes("MINIMAX")) return "MINIMAX";
+  if (upper.includes("GPT")) return "GPT";
+
+  // openrouter/provider/model → last segment
+  const parts = upper.split("/");
+  if (parts.length > 1) {
+    return parts[parts.length - 1];
+  }
+  return upper;
+}
+
+const SourceBadge: React.FC<BadgeProps> = ({ source, model }) => {
+  const badges = [];
+
+  if (source && source !== "web") {
+    const label = source === "telegram" ? "Telegram" : source;
+    const color = source === "telegram" ? "#229ED9" : "#94a3b8";
+    badges.push(
+      <span key={`source-${source}`} style={{
+        fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
+        background: `${color}22`, color, border: `1px solid ${color}55`,
+        marginLeft: 6, lineHeight: 1.4,
+      }}>
+        {label}
+      </span>
+    );
+  }
+
+  if (model) {
+    const modelLabel = normalizeModelLabel(model);
+    if (modelLabel) {
+    const modelColors: Record<string, string> = {
+      "CLAUDE": "#9B5DE5",
+      "CODEX": "#00D9FF",
+      "GEMINI": "#F77F00",
+      "CURSOR": "#06FFA5",
+      "SWARMSYNC": "#FF006E",
+    };
+    const modelColor = Object.entries(modelColors).find(([key]) => modelLabel.includes(key))?.[1] || "#64748B";
+    badges.push(
+      <span key={`model-${model}`} style={{
+        fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
+        background: `${modelColor}22`, color: modelColor, border: `1px solid ${modelColor}55`,
+        marginLeft: 6, lineHeight: 1.4,
+      }}>
+        {modelLabel}
+      </span>
+      );
+    }
+  }
+
+  return badges.length > 0 ? <>{badges}</> : null;
+};
 
 const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
   const isUser = message.role === "user";
   return (
     <div className={`chat-bubble ${isUser ? "chat-bubble-user" : "chat-bubble-assistant"}`}>
       <div className="chat-bubble-header">
-        <span className="chat-bubble-role">{isUser ? "You" : "Cato"}</span>
+        <span className="chat-bubble-role">
+          {isUser ? "You" : "Cato"}
+          <SourceBadge source={message.source} model={message.model} />
+        </span>
         <time className="chat-bubble-time">
           {new Date(message.timestamp).toLocaleTimeString([], {
             hour: "2-digit",
@@ -29,8 +113,9 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
   );
 };
 
-export const ChatView: React.FC<ChatViewProps> = ({ wsBase }) => {
-  const { messages, connectionStatus, sendMessage, isStreaming } = useChatStream(wsBase);
+export const ChatView: React.FC<ChatViewProps> = ({ wsBase, httpPort, onConnectionStatusChange }) => {
+  const { messages, connectionStatus, sendMessage, isStreaming, clearHistory } =
+    useChatStream(wsBase, httpPort);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -38,6 +123,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ wsBase }) => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Bubble connection status up to the parent so the sidebar daemon status
+  // can stay in sync with the chat WebSocket connection.
+  useEffect(() => {
+    if (onConnectionStatusChange) {
+      onConnectionStatusChange(connectionStatus);
+    }
+  }, [connectionStatus, onConnectionStatusChange]);
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {
@@ -65,21 +158,38 @@ export const ChatView: React.FC<ChatViewProps> = ({ wsBase }) => {
     <div className="chat-view">
       <header className="chat-header">
         <h1 className="chat-title">Cato Chat</h1>
-        <span className={`chat-status chat-status-${connectionStatus}`}>
-          {connectionStatus === "connected" ? "Connected" :
-           connectionStatus === "connecting" ? "Connecting..." :
-           connectionStatus === "reconnecting" ? "Reconnecting..." :
-           "Disconnected"}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className={`chat-status chat-status-${connectionStatus}`}>
+            {connectionStatus === "connected"    ? "Connected"      :
+             connectionStatus === "connecting"   ? "Connecting..."  :
+             connectionStatus === "reconnecting" ? "Reconnecting..."
+                                                 : "Disconnected"}
+          </span>
+          {messages.length > 0 && (
+            <button
+              className="btn-cancel-sm"
+              onClick={clearHistory}
+              title="Clear conversation history"
+              style={{ fontSize: 11 }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
         {messages.length === 0 && (
           <div className="chat-empty">
-            <div className="chat-empty-icon">C</div>
+            <img
+              src={logoSrc}
+              alt="Cato"
+              className="chat-empty-logo"
+            />
             <p>Start a conversation with Cato</p>
             <p className="chat-empty-hint">
               Ask questions, get help with code, or explore ideas.
+              Telegram messages appear here too.
             </p>
           </div>
         )}
@@ -115,9 +225,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ wsBase }) => {
         <button
           type="submit"
           className="chat-send-btn"
-          disabled={!input.trim() || connectionStatus !== "connected"}
+          disabled={!input.trim() || connectionStatus !== "connected" || isStreaming}
         >
-          Send
+          {isStreaming ? "Working..." : "Send"}
         </button>
       </form>
     </div>

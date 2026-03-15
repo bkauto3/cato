@@ -252,3 +252,44 @@ def test_extract_patterns_no_habit_below_min_evidence(he: HabitExtractor) -> Non
     habits = he.extract_patterns()
     skill_habits = [h for h in habits if h.skill_affinity == skill]
     assert len(skill_habits) == 0
+
+
+def test_extract_patterns_old_habits_age_out(he: HabitExtractor) -> None:
+    """Recency weighting: many old rejections get low weight and do not yield a habit in default window."""
+    import time
+    now = time.time()
+    # Events 60 days ago: 8 rejections for skill_old — outside 30-day default window
+    old_ts = now - 60 * 86400
+    for i in range(8):
+        he._conn.execute(
+            """INSERT INTO interaction_events (event_id, timestamp, event_type, session_id, response_id, event_detail, skill_used)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (f"old-{i}", old_ts, EVENT_REJECTED, "s-old", None, "{}", "skill_old"),
+        )
+    he._conn.commit()
+    habits = he.extract_patterns(window_days=30)
+    # skill_old events are outside window (30 days) so they are excluded entirely
+    skill_old_habits = [h for h in habits if h.skill_affinity == "skill_old"]
+    assert len(skill_old_habits) == 0
+
+
+def test_extract_patterns_recent_repeated_habits_win(he: HabitExtractor) -> None:
+    """Recent repeated rejections for a skill produce a habit; old acceptances don't outweigh them."""
+    import time
+    now = time.time()
+    # 5 old acceptances (40 days ago)
+    old_ts = now - 40 * 86400
+    for i in range(5):
+        he._conn.execute(
+            """INSERT INTO interaction_events (event_id, timestamp, event_type, session_id, response_id, event_detail, skill_used)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (f"old-acc-{i}", old_ts, EVENT_ACCEPTED, "s1", None, "{}", "skill_recent"),
+        )
+    # 6 recent rejections (within last 2 days)
+    for _ in range(6):
+        he.log_event(EVENT_REJECTED, session_id="s1", skill_used="skill_recent")
+    habits = he.extract_patterns(window_days=30)
+    skill_habits = [h for h in habits if h.skill_affinity == "skill_recent"]
+    assert len(skill_habits) == 1
+    # Weighted rejection rate should be high (recent rejections weighted heavily)
+    assert skill_habits[0].confidence > 0.6

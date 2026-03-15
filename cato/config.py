@@ -43,6 +43,7 @@ class CatoConfig:
 
     # Workspace
     workspace_dir: str = str(get_data_dir() / "workspace")
+    pipeline_root_dir: str = str(get_data_dir() / "businesses")
 
     # Logging
     log_level: str = "INFO"
@@ -51,7 +52,11 @@ class CatoConfig:
     telegram_enabled: bool = False
     telegram_bot_token: str = ""
     whatsapp_enabled: bool = False
-    webchat_port: int = 8765
+    webchat_port: int = 8080
+    mcp_enabled: bool = False
+    mcp_host: str = "127.0.0.1"
+    mcp_port: int = 8765
+    mcp_mount_path: str = "/mcp"
 
     # Planning
     max_planning_turns: int = 2
@@ -68,6 +73,15 @@ class CatoConfig:
     selector_healing_enabled: bool = False
     vault: Optional[dict] = None   # API keys / credentials for search, login, etc.
 
+    # Active model toggles — which CLIs are included in coding-agent fan-out
+    enabled_models: list = field(default_factory=lambda: ["claude", "codex", "gemini"])
+
+    # Subagent routing (mirrors OpenClaw's ChatGPT-subagent feature)
+    # When enabled, TIER_C coding tasks are delegated to the chosen CLI backend
+    # so users can leverage plan-included usage from their preferred provider.
+    subagent_enabled: bool = False
+    subagent_coding_backend: str = "codex"  # claude | codex | gemini | cursor
+
     # Safety gates
     safety_mode: str = "strict"             # strict | permissive | desktop | off
 
@@ -76,6 +90,16 @@ class CatoConfig:
 
     # Audit log
     audit_enabled: bool = True              # append-only action log
+
+    # Interactive PTY CLI sessions (desktop)
+    interactive_cli_enabled: bool = True
+    cli_session_cwd: str = ""              # empty = use process cwd
+    claude_auth_dir: str = ""
+    codex_api_key_env: str = "OPENAI_API_KEY"
+    gemini_api_key_env: str = "GEMINI_API_KEY"
+    pty_default_cols: int = 80
+    pty_default_rows: int = 24
+    pty_idle_timeout_sec: int = 0           # 0 = no auto-cleanup
 
     # Internal — path is excluded from YAML serialisation
     _path: Path = field(default_factory=lambda: _CONFIG_FILE, repr=False, compare=False)

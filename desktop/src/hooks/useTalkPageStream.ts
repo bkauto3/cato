@@ -22,6 +22,8 @@ export type ConnectionStatus =
   | "disconnected"
   | "closed";
 
+export type CancelFn = () => void;
+
 export interface UseTalkPageStreamResult {
   messages: TalkMessage[];
   isLoading: boolean;
@@ -29,12 +31,14 @@ export interface UseTalkPageStreamResult {
   error: string | null;
   connectionStatus: ConnectionStatus;
   messagesEndRef: MutableRefObject<HTMLDivElement | null>;
+  cancel: CancelFn;
 }
 
 const MAX_RETRIES          = 5;
 const INITIAL_BACKOFF_MS   = 500;
 const MAX_BACKOFF_MS       = 16_000;
-const HEARTBEAT_TIMEOUT_MS = 3_000;
+// Server sends heartbeats every 30 s — give it 45 s before declaring reconnecting
+const HEARTBEAT_TIMEOUT_MS = 45_000;
 const TASK_TIMEOUT_MS      = 5_000;
 
 export function useTalkPageStream(
@@ -54,10 +58,15 @@ export function useTalkPageStream(
   const taskTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedRef         = useRef<boolean>(false);
   const messagesRef       = useRef<TalkMessage[]>([]);
+  const synthesisRef      = useRef<SynthesisResult | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    synthesisRef.current = synthesis;
+  }, []);  // synthesisRef keeps this stable without synthesis in deps
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,7 +92,7 @@ export function useTalkPageStream(
     if (taskTimerRef.current) clearTimeout(taskTimerRef.current);
     taskTimerRef.current = setTimeout(() => {
       const msgs = messagesRef.current;
-      if (msgs.length > 0 && !synthesis) {
+      if (msgs.length > 0 && !synthesisRef.current) {
         const best = [...msgs].sort((a, b) => b.confidence - a.confidence)[0];
         setSynthesis({
           primary: {
@@ -214,9 +223,12 @@ export function useTalkPageStream(
 
   const connect = useCallback(() => {
     if (closedRef.current) return;
-    if (!taskId) return;
+    // Don't connect until a real task ID exists (empty string = no task submitted yet)
+    if (!taskId || taskId.trim() === "") return;
 
-    const host = wsBase ?? "127.0.0.1:8080";
+    // KRAK-4: validate wsBase is localhost-only — desktop app never connects to external hosts
+    const rawHost = wsBase ?? "127.0.0.1:8080";
+    const host = /^127\.0\.0\.1:\d+$/.test(rawHost) ? rawHost : "127.0.0.1:8080";
     const url  = `ws://${host}/ws/coding-agent/${encodeURIComponent(taskId)}`;
 
     setConnectionStatus("connecting");
@@ -280,7 +292,20 @@ export function useTalkPageStream(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
-  return { messages, isLoading, synthesis, error, connectionStatus, messagesEndRef };
+  const cancel = useCallback(() => {
+    closedRef.current = true;
+    clearHeartbeatTimer();
+    clearTaskTimeout();
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsLoading(false);
+    setConnectionStatus("closed");
+  }, [clearHeartbeatTimer, clearTaskTimeout]);
+
+  return { messages, isLoading, synthesis, error, connectionStatus, messagesEndRef, cancel };
 }
 
 export default useTalkPageStream;

@@ -30,11 +30,15 @@ from rich.table import Table
 
 from cato.budget import BudgetManager
 from cato.config import CatoConfig
+from cato.platform import get_data_dir
 
 console = Console()
 
-_CATO_DIR = Path.home() / ".cato"
-_PID_FILE = _CATO_DIR / "cato.pid"
+def _cato_dir() -> Path:
+    """Canonical Cato data directory (Windows: %APPDATA%/cato, POSIX: ~/.cato)."""
+    return get_data_dir()
+
+_PID_FILE = _cato_dir() / "cato.pid"
 
 # Recommended token ceilings per workspace file
 _TOKEN_LIMITS: dict[str, int] = {
@@ -111,7 +115,12 @@ class DoctorReport:
     def _check_config(self) -> None:
         """Check 1: config file exists and is valid YAML."""
         console.print("\n[bold]Config[/bold]")
-        config_path = _CATO_DIR / "config.yaml"
+        data_dir = _cato_dir()
+        config_path = data_dir / "config.yaml"
+        # Warn if legacy path exists (e.g. ~/.cato on Windows when we use %APPDATA%\cato)
+        legacy = Path.home() / ".cato"
+        if legacy.exists() and data_dir != legacy and (legacy / "config.yaml").exists():
+            console.print(f"  [yellow]LEGACY PATH[/yellow] — config also at {legacy}; current data dir: {data_dir}")
         if not config_path.exists():
             console.print("  [yellow]NOT FOUND[/yellow] — run 'cato init' to create config")
             return
@@ -127,7 +136,7 @@ class DoctorReport:
     def _check_vault(self) -> None:
         """Check 2: vault file is present."""
         console.print("\n[bold]Vault[/bold]")
-        vault_path = _CATO_DIR / "vault.enc"
+        vault_path = _cato_dir() / "vault.enc"
         if vault_path.exists():
             size_kb = vault_path.stat().st_size / 1024
             console.print(
@@ -141,8 +150,8 @@ class DoctorReport:
     def _check_workspaces(self) -> None:
         """Check 3: per-agent workspace file token audit."""
         console.print("\n[bold]Workspace Token Audit[/bold]")
-
-        agents_dir = _CATO_DIR / "agents"
+        data_dir = _cato_dir()
+        agents_dir = data_dir / "agents"
         if not agents_dir.exists():
             console.print("  [yellow]No agents directory found[/yellow]")
             return
